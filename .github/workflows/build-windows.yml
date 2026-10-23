@@ -61,6 +61,28 @@ jobs:
           }
           pkg-config --version
 
+      - name: Verify GStreamer and pkg-config
+        shell: powershell
+        run: |
+          $gstRoot = "C:\gstreamer\1.0\msvc_x86_64"
+
+          if (!(Test-Path "$gstRoot\lib\pkgconfig\glib-2.0.pc")) {
+            Get-ChildItem "$gstRoot" -Filter "glib-2.0.pc" -Recurse
+            throw "glib-2.0.pc was not found in the GStreamer SDK"
+          }
+
+          $env:PATH = "$gstRoot\bin;$env:PATH"
+          $env:PKG_CONFIG_PATH = "$gstRoot\lib\pkgconfig"
+
+          if (!(Get-Command pkg-config -ErrorAction SilentlyContinue)) {
+            throw "pkg-config executable was not found"
+          }
+
+          pkg-config --modversion glib-2.0
+          if ($LASTEXITCODE -ne 0) {
+            throw "pkg-config cannot locate glib-2.0"
+          }
+
       - name: Install npm dependencies
         run: npm ci
 
