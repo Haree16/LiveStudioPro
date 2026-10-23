@@ -1,0 +1,75 @@
+name: Build Windows Release
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - 'v*'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Install GStreamer MSVC SDK (1.26.11)
+        shell: powershell
+        run: |
+          $version = "1.26.11"
+          $baseUrl = "https://gstreamer.freedesktop.org/data/pkg/windows/$version/msvc"
+          
+          Write-Host "Downloading GStreamer Runtime MSI..."
+          Invoke-WebRequest -Uri "$baseUrl/gstreamer-1.0-msvc-x86_64-$version.msi" -OutFile "gstreamer.msi"
+          
+          Write-Host "Downloading GStreamer Development MSI..."
+          Invoke-WebRequest -Uri "$baseUrl/gstreamer-1.0-devel-msvc-x86_64-$version.msi" -OutFile "gstreamer-devel.msi"
+          
+          Write-Host "Installing GStreamer Runtime..."
+          Start-Process msiexec.exe -ArgumentList "/i gstreamer.msi /quiet /norestart ADDLOCAL=ALL" -Wait
+          
+          Write-Host "Installing GStreamer Development SDK..."
+          Start-Process msiexec.exe -ArgumentList "/i gstreamer-devel.msi /quiet /norestart ADDLOCAL=ALL" -Wait
+          
+          # Add to GitHub environment for subsequent steps
+          $gstRoot = "C:\gstreamer\1.0\msvc_x86_64"
+          echo "$gstRoot\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          echo "GSTREAMER_1_0_ROOT_MSVC_X86_64=$gstRoot\" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          echo "PKG_CONFIG_PATH=$gstRoot\lib\pkgconfig" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build Tauri Windows Installer
+        shell: bash
+        run: |
+          npx tauri build --bundles nsis
+
+      - name: Upload Windows Setup Installer Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LiveStudio-Pro-Windows-Setup-Installer
+          path: src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+
+      - name: Upload Standalone Windows Executable Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LiveStudio-Pro-Windows-Executable
+          path: src-tauri/target/release/livestudio-pro.exe
+          if-no-files-found: warn

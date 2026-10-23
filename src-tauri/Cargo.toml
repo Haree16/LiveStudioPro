@@ -1,0 +1,57 @@
+[package]
+name = "livestudio-pro"
+version = "1.0.0"
+description = "Professional Live Video Production Application"
+authors = ["LiveStudio Pro Team"]
+edition = "2024"
+rust-version = "1.90"
+
+[lib]
+name = "livestudio_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.7.3", features = [] }
+
+[dependencies]
+tauri = { version = "2.12.4", features = [] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+gstreamer = "0.25"
+gstreamer-pbutils = "0.25"
+gstreamer-app = "0.25"
+gstreamer-video = "0.25"
+gstreamer-audio = "0.25"
+tokio = { version = "1.43", features = ["full"] }
+thiserror = "2.0"
+uuid = { version = "1.11", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+sysinfo = "0.33"
+rusqlite = { version = "0.33", features = ["bundled"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+parking_lot = "0.12"
+url = "2.5"
+base64 = "0.22"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+libc = "0.2"
+axum = { version = "0.8", features = ["ws"] }
+tower-http = { version = "0.6", features = ["cors", "fs"] }
+gstreamer-webrtc = "0.25"
+gstreamer-sdp = "0.25"
+sha2 = "0.10"
+futures-util = "0.3"
+midir = "0.10"
+rfd = "0.17.2"
+
+[dev-dependencies]
+tempfile = "3.16"
+
+[profile.dev]
+opt-level = 2
+
+[profile.dev.package.image]
+opt-level = 3
+
+[profile.dev.package.base64]
+opt-level = 3
