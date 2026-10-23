@@ -39,37 +39,25 @@ jobs:
           
           Write-Host "Downloading GStreamer Development MSI..."
           Invoke-WebRequest -Uri "$baseUrl/gstreamer-1.0-devel-msvc-x86_64-$version.msi" -OutFile "gstreamer-devel.msi"
-          
-          Write-Host "Installing GStreamer Runtime..."
-          Start-Process msiexec.exe -ArgumentList "/i gstreamer.msi /quiet /norestart ADDLOCAL=ALL" -Wait
+
 	  Write-Host "Installing GStreamer Runtime..."
-          $process = Start-Process msiexec.exe `
+	  $process = Start-Process msiexec.exe `
           -ArgumentList "/i gstreamer.msi /quiet /norestart INSTALLDIR=C:\gstreamer\1.0\msvc_x86_64" `
           -Wait -PassThru
 
+	   if ($process.ExitCode -ne 0) {
+		  throw "GStreamer runtime installation failed: $($process.ExitCode)"
+	   }
+
+           Write-Host "Installing GStreamer Development SDK..."
+           $process = Start-Process msiexec.exe `
+           -ArgumentList "/i gstreamer-devel.msi /quiet /norestart INSTALLDIR=C:\gstreamer\1.0\msvc_x86_64" `
+           -Wait -PassThru
+
            if ($process.ExitCode -ne 0) {
-               throw "GStreamer runtime installation failed: $($process.ExitCode)"
+                 throw "GStreamer development installation failed: $($process.ExitCode)"
            }
           
-          Write-Host "Installing GStreamer Development SDK..."
-          Start-Process msiexec.exe -ArgumentList "/i gstreamer-devel.msi /quiet /norestart ADDLOCAL=ALL" -Wait
-		Write-Host "Installing GStreamer Runtime..."
-		$process = Start-Process msiexec.exe `
-		  -ArgumentList "/i gstreamer.msi /quiet /norestart INSTALLDIR=C:\gstreamer\1.0\msvc_x86_64" `
-		  -Wait -PassThru
-
-		if ($process.ExitCode -ne 0) {
-		  throw "GStreamer runtime installation failed: $($process.ExitCode)"
-		}
-
-		Write-Host "Installing GStreamer Development SDK..."
-		$process = Start-Process msiexec.exe `
-		  -ArgumentList "/i gstreamer-devel.msi /quiet /norestart INSTALLDIR=C:\gstreamer\1.0\msvc_x86_64" `
-		  -Wait -PassThru
-
-		if ($process.ExitCode -ne 0) {
-		  throw "GStreamer development installation failed: $($process.ExitCode)"
-		}          
 
           # Add to GitHub environment for subsequent steps
           $gstRoot = "C:\gstreamer\1.0\msvc_x86_64"
