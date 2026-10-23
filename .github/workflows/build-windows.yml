@@ -42,10 +42,35 @@ jobs:
           
           Write-Host "Installing GStreamer Runtime..."
           Start-Process msiexec.exe -ArgumentList "/i gstreamer.msi /quiet /norestart ADDLOCAL=ALL" -Wait
+	  Write-Host "Installing GStreamer Runtime..."
+          $process = Start-Process msiexec.exe `
+          -ArgumentList "/i gstreamer.msi /quiet /norestart INSTALLDIR=C:\gstreamer\1.0\msvc_x86_64" `
+          -Wait -PassThru
+
+           if ($process.ExitCode -ne 0) {
+               throw "GStreamer runtime installation failed: $($process.ExitCode)"
+           }
           
           Write-Host "Installing GStreamer Development SDK..."
           Start-Process msiexec.exe -ArgumentList "/i gstreamer-devel.msi /quiet /norestart ADDLOCAL=ALL" -Wait
-          
+		Write-Host "Installing GStreamer Runtime..."
+		$process = Start-Process msiexec.exe `
+		  -ArgumentList "/i gstreamer.msi /quiet /norestart INSTALLDIR=C:\gstreamer\1.0\msvc_x86_64" `
+		  -Wait -PassThru
+
+		if ($process.ExitCode -ne 0) {
+		  throw "GStreamer runtime installation failed: $($process.ExitCode)"
+		}
+
+		Write-Host "Installing GStreamer Development SDK..."
+		$process = Start-Process msiexec.exe `
+		  -ArgumentList "/i gstreamer-devel.msi /quiet /norestart INSTALLDIR=C:\gstreamer\1.0\msvc_x86_64" `
+		  -Wait -PassThru
+
+		if ($process.ExitCode -ne 0) {
+		  throw "GStreamer development installation failed: $($process.ExitCode)"
+		}          
+
           # Add to GitHub environment for subsequent steps
           $gstRoot = "C:\gstreamer\1.0\msvc_x86_64"
           echo "$gstRoot\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
@@ -55,7 +80,7 @@ jobs:
       - name: Install pkg-config
         shell: powershell
         run: |
-          choco install pkgconfiglite --yes --no-progress
+         choco install pkgconfiglite --yes --no-progress
           if ($LASTEXITCODE -ne 0) {
             throw "Failed to install pkg-config"
           }
