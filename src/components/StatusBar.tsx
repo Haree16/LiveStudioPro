@@ -88,7 +88,7 @@ export const StatusBar: React.FC = () => {
         {/* Left: Branding & Project Title */}
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
-            <div className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
+            <img src="/app-icon.png" alt="LiveStudio Pro" className="w-7 h-7 rounded-md shrink-0" draggable={false} />
             <span className="font-black text-sm tracking-wider text-slate-100">
               LIVE STUDIO <span className="text-red-500">PRO</span>
             </span>
