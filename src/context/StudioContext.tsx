@@ -37,6 +37,7 @@ export type ModalType =
   | "recovery"
   | "scene-editor"
   | "display-settings"
+  | "sub-mix"
   | "multiview"
   | "streaming"
   | "recording"

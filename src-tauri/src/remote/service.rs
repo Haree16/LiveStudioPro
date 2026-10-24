@@ -356,20 +356,38 @@ async fn handle_guest_socket(
     let guest_id = invitation.id.clone();
     info!("Guest {} ({}) connected via WebSocket", invitation.guest_name, guest_id);
 
-    while let Some(Ok(msg)) = socket.next().await {
+    // Locally gathered ICE candidates are pushed here by the WebRTC pipeline.
+    let (ice_tx, mut ice_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+
+    loop {
+        let msg = tokio::select! {
+            Some(outgoing) = ice_rx.recv() => {
+                let _ = socket.send(Message::Text(outgoing.into())).await;
+                continue;
+            }
+            incoming = socket.next() => match incoming {
+                Some(Ok(m)) => m,
+                _ => break,
+            },
+        };
         if let Message::Text(text) = msg {
             if let Ok(val) = serde_json::from_str::<serde_json::Value>(&text) {
                 let msg_type = val.get("type").and_then(|v| v.as_str()).unwrap_or("");
                 match msg_type {
                     "offer" => {
                         if let Some(sdp) = val.get("sdp").and_then(|v| v.as_str()) {
-                            if let Ok(answer) = state.webrtc_mgr.process_offer(&guest_id, sdp) {
-                                let reply = serde_json::json!({
-                                    "type": "answer",
-                                    "sdp": answer.sdp
-                                });
-                                let _ = socket.send(Message::Text(reply.to_string().into())).await;
-                            }
+                            let (mgr, gid, sdp, tx) =
+                                (state.webrtc_mgr.clone(), guest_id.clone(), sdp.to_string(), ice_tx.clone());
+                            let result = tokio::task::spawn_blocking(move || mgr.negotiate_offer(&gid, &sdp, tx)).await;
+                            let reply = match result {
+                                Ok(Ok(answer)) => serde_json::json!({ "type": "answer", "sdp": answer.sdp }),
+                                Ok(Err(e)) => {
+                                    tracing::warn!("Guest {guest_id} negotiation failed: {e}");
+                                    serde_json::json!({ "type": "error", "message": e.to_string() })
+                                }
+                                Err(e) => serde_json::json!({ "type": "error", "message": e.to_string() }),
+                            };
+                            let _ = socket.send(Message::Text(reply.to_string().into())).await;
                         }
                     }
                     "iceCandidate" => {
@@ -402,6 +420,7 @@ async fn handle_guest_socket(
         }
     }
 
+    state.webrtc_mgr.close_session(&guest_id);
     state.guest_mgr.disconnect_guest(&guest_id);
     info!("Guest {} disconnected", guest_id);
 }

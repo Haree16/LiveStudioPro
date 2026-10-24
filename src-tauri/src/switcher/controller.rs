@@ -512,13 +512,13 @@ impl SwitcherController {
     where
         F: Fn(&str) -> Option<RgbaImage>,
     {
+        // Only the sub-mix's Program is output; its Preview stays off-air. A sub-mix cannot
+        // feed another sub-mix, which also rules out reference loops.
         let bus = self.get_sub_mix(mix_index)?;
-        if let Some(ref pgm_id) = bus.program_source_id {
-            frame_provider(pgm_id)
-        } else if let Some(ref prev_id) = bus.preview_source_id {
-            frame_provider(prev_id)
-        } else {
-            None
+        let pgm_id = bus.program_source_id?;
+        if crate::switcher::model::parse_sub_mix_source_id(&pgm_id).is_some() {
+            return None;
         }
+        frame_provider(&pgm_id)
     }
 }

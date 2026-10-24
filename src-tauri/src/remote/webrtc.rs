@@ -9,6 +9,10 @@ use tracing::{debug, info, warn};
 
 use crate::core::error::LiveStudioError;
 use crate::remote::guest::GuestConnectionStats;
+use crate::remote::guest_media::GuestMediaHub;
+use gstreamer_app as gst_app;
+use gstreamer_sdp as gst_sdp;
+use gstreamer_webrtc as gst_webrtc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -41,6 +45,8 @@ pub struct ActiveGuestSession {
 pub struct WebRtcSessionManager {
     sessions: Arc<RwLock<HashMap<String, ActiveGuestSession>>>,
     webrtcbin_available: Arc<RwLock<Option<bool>>>,
+    /// Decoded guest video/audio, shared with the switcher and mixer.
+    pub media: Arc<GuestMediaHub>,
 }
 
 impl WebRtcSessionManager {
@@ -56,6 +62,7 @@ impl WebRtcSessionManager {
         Self {
             sessions: Arc::new(RwLock::new(HashMap::new())),
             webrtcbin_available: Arc::new(RwLock::new(Some(webrtc_avail))),
+            media: Arc::new(GuestMediaHub::new()),
         }
     }
 
@@ -63,7 +70,228 @@ impl WebRtcSessionManager {
         *self.webrtcbin_available.read().as_ref().unwrap_or(&false)
     }
 
-    /// Processes an incoming WebRTC SDP offer, sets up the pipeline, and generates a compliant SDP answer
+    /// Real WebRTC negotiation. Builds a `webrtcbin` receive pipeline for `guest_id`, applies the
+    /// browser's SDP offer, and returns the genuine SDP answer. Decoded video (RGBA 1280x720) and
+    /// audio (S16LE 48 kHz stereo) are pushed into [`Self::media`]. Locally gathered ICE
+    /// candidates are sent as ready-made JSON signalling messages on `ice_tx`.
+    ///
+    /// Blocks until negotiation completes (or 5 s), so call it from a blocking context.
+    pub fn negotiate_offer(
+        &self,
+        guest_id: &str,
+        offer_sdp: &str,
+        ice_tx: tokio::sync::mpsc::UnboundedSender<String>,
+    ) -> Result<WebRtcSdpMessage, LiveStudioError> {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        if !self.is_webrtcbin_supported() {
+            return Err(LiveStudioError::media(
+                "GStreamer webrtcbin is not installed; remote guests are unavailable",
+                Some("Install gst-plugins-bad (webrtc) and gst-plugin-nice (libnice)"),
+            ));
+        }
+        let to_err = |what: &str, e: String| LiveStudioError::media(format!("{what}: {e}"), None);
+
+        if offer_sdp.trim().is_empty() {
+            return Err(LiveStudioError::validation("SDP offer cannot be empty", Some("sdp")));
+        }
+        let sdp = gst_sdp::SDPMessage::parse_buffer(offer_sdp.as_bytes())
+            .map_err(|e| to_err("Invalid SDP offer", format!("{e:?}")))?;
+        if !offer_sdp.contains("m=video") && !offer_sdp.contains("m=audio") {
+            return Err(LiveStudioError::validation("SDP offer contains no media", Some("sdp")));
+        }
+
+        // Replace any previous session for this guest (reconnect).
+        self.close_session(guest_id);
+
+        let pipeline = gst::Pipeline::new();
+        let webrtc = gst::ElementFactory::make("webrtcbin")
+            .property_from_str("bundle-policy", "max-bundle")
+            .property("stun-server", "stun://stun.l.google.com:19302")
+            .build()
+            .map_err(|e| to_err("webrtcbin", e.to_string()))?;
+        pipeline.add(&webrtc).map_err(|e| to_err("pipeline", e.to_string()))?;
+
+        // Local ICE candidates -> guest.
+        {
+            let tx = ice_tx.clone();
+            webrtc.connect("on-ice-candidate", false, move |values| {
+                let mline = values[1].get::<u32>().ok()?;
+                let cand = values[2].get::<String>().ok()?;
+                let msg = serde_json::json!({
+                    "type": "iceCandidate",
+                    "candidate": { "candidate": cand, "sdpMLineIndex": mline }
+                });
+                let _ = tx.send(msg.to_string());
+                None
+            });
+        }
+
+        // Incoming RTP -> decodebin -> appsinks feeding the hub.
+        {
+            let pipe_weak = pipeline.downgrade();
+            let hub = self.media.clone();
+            let gid = guest_id.to_string();
+            webrtc.connect_pad_added(move |_, pad| {
+                if pad.direction() != gst::PadDirection::Src {
+                    return;
+                }
+                let Some(pipe) = pipe_weak.upgrade() else { return };
+                let Ok(decode) = gst::ElementFactory::make("decodebin").build() else { return };
+                if pipe.add(&decode).is_err() {
+                    return;
+                }
+                let (pipe_weak2, hub2, gid2) = (pipe.downgrade(), hub.clone(), gid.clone());
+                decode.connect_pad_added(move |_, dpad| {
+                    if let Some(p) = pipe_weak2.upgrade() {
+                        Self::attach_decoded_pad(&p, dpad, &hub2, &gid2);
+                    }
+                });
+                let _ = decode.sync_state_with_parent();
+                if let Some(sink) = decode.static_pad("sink") {
+                    let _ = pad.link(&sink);
+                }
+            });
+        }
+
+        pipeline
+            .set_state(gst::State::Playing)
+            .map_err(|e| to_err("Could not start WebRTC pipeline", e.to_string()))?;
+
+        let fail = |pipeline: &gst::Pipeline, what: &str, e: String| {
+            let _ = pipeline.set_state(gst::State::Null);
+            to_err(what, e)
+        };
+
+        // 1) Apply remote offer.
+        let offer = gst_webrtc::WebRTCSessionDescription::new(gst_webrtc::WebRTCSDPType::Offer, sdp);
+        let (tx1, rx1) = mpsc::channel::<Result<(), String>>();
+        let promise = gst::Promise::with_change_func(move |reply| {
+            let _ = tx1.send(reply.map(|_| ()).map_err(|e| format!("{e:?}")));
+        });
+        webrtc.emit_by_name::<()>("set-remote-description", &[&offer, &promise]);
+        match rx1.recv_timeout(Duration::from_secs(5)) {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => return Err(fail(&pipeline, "set-remote-description failed", e)),
+            Err(_) => return Err(fail(&pipeline, "set-remote-description timed out", String::new())),
+        }
+
+        // 2) Create the answer.
+        let (tx2, rx2) = mpsc::channel::<Result<gst_webrtc::WebRTCSessionDescription, String>>();
+        let promise = gst::Promise::with_change_func(move |reply| {
+            let res = match reply {
+                Ok(Some(s)) => s
+                    .get::<gst_webrtc::WebRTCSessionDescription>("answer")
+                    .map_err(|e| format!("no answer in reply: {e}")),
+                Ok(None) => Err("empty create-answer reply".to_string()),
+                Err(e) => Err(format!("{e:?}")),
+            };
+            let _ = tx2.send(res);
+        });
+        webrtc.emit_by_name::<()>("create-answer", &[&None::<gst::Structure>, &promise]);
+        let answer = match rx2.recv_timeout(Duration::from_secs(5)) {
+            Ok(Ok(a)) => a,
+            Ok(Err(e)) => return Err(fail(&pipeline, "create-answer failed", e)),
+            Err(_) => return Err(fail(&pipeline, "create-answer timed out", String::new())),
+        };
+
+        // 3) Apply it locally (starts ICE gathering).
+        webrtc.emit_by_name::<()>("set-local-description", &[&answer, &None::<gst::Promise>]);
+        let answer_sdp = answer.sdp().as_text().map_err(|e| to_err("answer SDP", e.to_string()))?;
+
+        self.sessions.write().insert(
+            guest_id.to_string(),
+            ActiveGuestSession {
+                guest_id: guest_id.to_string(),
+                pipeline: Some(pipeline),
+                webrtcbin: Some(webrtc),
+                sdp_state: "stable".into(),
+                candidates: Vec::new(),
+                stats: GuestConnectionStats {
+                    guest_id: guest_id.to_string(),
+                    round_trip_time_ms: 0.0,
+                    packet_loss_percent: 0.0,
+                    jitter_ms: 0.0,
+                    video_bitrate_kbps: 0,
+                    audio_bitrate_kbps: 0,
+                    resolution: String::new(),
+                    fps: 0,
+                    ice_state: "checking".into(),
+                },
+                connected_at: Instant::now(),
+                last_active: Instant::now(),
+            },
+        );
+        info!("WebRTC negotiation complete for guest {guest_id}");
+        Ok(WebRtcSdpMessage { sdp_type: "answer".into(), sdp: answer_sdp })
+    }
+
+    /// Links a decoded raw pad to an RGBA video appsink or an S16LE audio appsink.
+    fn attach_decoded_pad(pipe: &gst::Pipeline, pad: &gst::Pad, hub: &Arc<GuestMediaHub>, guest_id: &str) {
+        let caps = pad.current_caps().unwrap_or_else(|| pad.query_caps(None));
+        let Some(name) = caps.structure(0).map(|s| s.name().to_string()) else { return };
+
+        let desc = if name.starts_with("video/") {
+            "queue max-size-buffers=3 leaky=downstream ! videoconvert ! videoscale add-borders=true ! \
+             video/x-raw,format=RGBA,width=1280,height=720 ! appsink name=out sync=false max-buffers=2 drop=true emit-signals=false"
+        } else if name.starts_with("audio/") {
+            "queue max-size-buffers=20 leaky=downstream ! audioconvert ! audioresample ! \
+             audio/x-raw,format=S16LE,rate=48000,channels=2,layout=interleaved ! appsink name=out sync=false max-buffers=20 drop=true emit-signals=false"
+        } else {
+            return;
+        };
+
+        let Ok(bin) = gst::parse::bin_from_description(desc, true) else { return };
+        let Some(sink) = bin.by_name("out").and_then(|e| e.downcast::<gst_app::AppSink>().ok()) else { return };
+
+        let (hub, gid) = (hub.clone(), guest_id.to_string());
+        if name.starts_with("video/") {
+            sink.set_callbacks(
+                gst_app::AppSinkCallbacks::builder()
+                    .new_sample(move |s| {
+                        if let Ok(sample) = s.pull_sample() {
+                            if let (Some(buf), Some(caps)) = (sample.buffer(), sample.caps()) {
+                                if let (Some(st), Ok(map)) = (caps.structure(0), buf.map_readable()) {
+                                    let w = st.get::<i32>("width").unwrap_or(0) as u32;
+                                    let h = st.get::<i32>("height").unwrap_or(0) as u32;
+                                    if let Some(img) = image::RgbaImage::from_raw(w, h, map.as_slice().to_vec()) {
+                                        hub.push_video(&gid, img);
+                                    }
+                                }
+                            }
+                        }
+                        Ok(gst::FlowSuccess::Ok)
+                    })
+                    .build(),
+            );
+        } else {
+            sink.set_callbacks(
+                gst_app::AppSinkCallbacks::builder()
+                    .new_sample(move |s| {
+                        if let Ok(sample) = s.pull_sample() {
+                            if let Some(Ok(map)) = sample.buffer().map(|b| b.map_readable()) {
+                                hub.push_audio(&gid, map.as_slice().to_vec());
+                            }
+                        }
+                        Ok(gst::FlowSuccess::Ok)
+                    })
+                    .build(),
+            );
+        }
+
+        if pipe.add(&bin).is_err() {
+            return;
+        }
+        let _ = bin.sync_state_with_parent();
+        if let Some(sinkpad) = bin.static_pad("sink") {
+            let _ = pad.link(&sinkpad);
+        }
+    }
+
+    /// Legacy signalling-only stub: records a session and returns a canned answer WITHOUT any
+    /// media pipeline. Kept for API compatibility with older tests; the server uses
+    /// [`Self::negotiate_offer`].
     pub fn process_offer(
         &self,
         guest_id: &str,
@@ -236,6 +464,7 @@ impl WebRtcSessionManager {
             if let Some(ref pipe) = session.pipeline {
                 let _ = pipe.set_state(gst::State::Null);
             }
+            self.media.clear(guest_id);
             info!("Closed WebRTC peer session for guest {guest_id}");
         }
     }

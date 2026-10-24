@@ -1,6 +1,7 @@
 pub mod director;
 pub mod discovery;
 pub mod guest;
+pub mod guest_media;
 pub mod ptz;
 pub mod service;
 pub mod tally;

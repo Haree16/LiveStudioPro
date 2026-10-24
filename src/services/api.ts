@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  SubMixBus,
   CapturableWindow,
   DeviceDescriptor,
   DeviceFormatOption,
@@ -313,6 +314,21 @@ export const api = {
 
   async setTransitionType(transitionType: TransitionType): Promise<void> {
     return invoke<void>("switcher_set_transition_type", { transitionType });
+  },
+
+  async listSubMixes(): Promise<SubMixBus[]> {
+    return invoke<SubMixBus[]>("switcher_list_sub_mixes");
+  },
+
+  async setSubMixSource(mixIndex: number, sourceId: string | null, program: boolean): Promise<void> {
+    return invoke<void>(program ? "switcher_set_sub_mix_program" : "switcher_set_sub_mix_preview", {
+      mixIndex,
+      sourceId,
+    });
+  },
+
+  async cutSubMix(mixIndex: number): Promise<void> {
+    return invoke<void>("switcher_cut_sub_mix", { mixIndex });
   },
 
   async setStinger(inputId: string | null, cutPoint?: number): Promise<void> {

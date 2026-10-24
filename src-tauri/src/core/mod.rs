@@ -1,4 +1,5 @@
 pub mod controller;
+pub mod display;
 pub mod error;
 pub mod lifecycle;
 pub mod state;

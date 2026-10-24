@@ -37,7 +37,7 @@ use crate::graphics::{
     DataSourceRecord, FieldBinding, GraphicItem, GraphicsProjectConfig, NativeGraphicsEngine,
 };
 use crate::switcher::{
-    DisplayInfo, MultiviewLayout, Scene, SceneCompositor, SceneLayer, SubMixBus, SwitcherController,
+    MultiviewLayout, Scene, SceneCompositor, SceneLayer, SubMixBus, SwitcherController,
     SwitcherStatus, TransitionType,
 };
 use crate::remote::{
@@ -885,6 +885,9 @@ impl ProductionController {
         if source_id == crate::playback::replay::REPLAY_SOURCE_ID {
             return self.replay_engine.get_playout_rgba();
         }
+        if let Some(n) = crate::switcher::model::parse_sub_mix_source_id(source_id) {
+            return self.switcher.render_sub_mix_frame(n, |s| self.resolve_source_frame(s));
+        }
         let (virtual_clone_id, color_key_cfg) = {
             let proj = self.current_project.read();
             if let Some(inp) = proj.inputs.iter().find(|i| i.id == source_id) {
@@ -899,7 +902,9 @@ impl ProductionController {
             }
         };
 
-        let frame_opt = {
+        let guest_frame = crate::remote::guest_media::GuestMediaHub::guest_id_from_input(source_id)
+            .and_then(|gid| self.remote_engine.webrtc_mgr.media.latest_video(gid));
+        let frame_opt = if guest_frame.is_some() { guest_frame } else {
             let active = self.active_inputs.read();
             if let Some(inst) = active.get(source_id) {
                 inst.get_latest_rgba_frame()
@@ -1221,6 +1226,32 @@ impl ProductionController {
         self.switcher.cut_sub_mix(mix_index);
     }
 
+    /// Validated sub-mix routing used by the Tauri commands. `source_id` must be a real input.
+    pub fn sub_mix_set_source(&self, mix_index: u32, source_id: Option<String>, program: bool) -> Result<(), LiveStudioError> {
+        if !(2..=16).contains(&mix_index) {
+            return Err(LiveStudioError::validation("Mix index must be between 2 and 16", Some("mixIndex")));
+        }
+        if let Some(ref id) = source_id {
+            if !self.current_project.read().inputs.iter().any(|i| &i.id == id) {
+                return Err(LiveStudioError::validation(format!("Input '{id}' not found (sub-mixes cannot use other mixes)"), Some("sourceId")));
+            }
+        }
+        if program {
+            self.switcher_set_sub_mix_program(mix_index, source_id);
+        } else {
+            self.switcher_set_sub_mix_preview(mix_index, source_id);
+        }
+        Ok(())
+    }
+
+    pub fn sub_mix_cut(&self, mix_index: u32) -> Result<(), LiveStudioError> {
+        if !(2..=16).contains(&mix_index) {
+            return Err(LiveStudioError::validation("Mix index must be between 2 and 16", Some("mixIndex")));
+        }
+        self.switcher_cut_sub_mix(mix_index);
+        Ok(())
+    }
+
     pub fn switcher_get_sub_mix(&self, mix_index: u32) -> Option<SubMixBus> {
         self.switcher.get_sub_mix(mix_index)
     }
@@ -1336,27 +1367,6 @@ impl ProductionController {
     }
 
     // Display Output
-    pub fn enumerate_displays(&self) -> Vec<DisplayInfo> {
-        vec![
-            DisplayInfo {
-                id: "display-primary".into(),
-                name: "Primary Monitor (Operator Console)".into(),
-                width: 1920,
-                height: 1080,
-                is_primary: true,
-                is_fullscreen_active: false,
-            },
-            DisplayInfo {
-                id: "display-secondary".into(),
-                name: "HDMI 2 / Projector (Program Output)".into(),
-                width: 1920,
-                height: 1080,
-                is_primary: false,
-                is_fullscreen_active: self.switcher.get_status().active_display_output.as_deref() == Some("display-secondary"),
-            },
-        ]
-    }
-
     pub fn set_display_output(&self, display_id: Option<String>) {
         self.switcher.set_display_output(display_id.clone());
         let mut proj = self.current_project.write();
@@ -1616,6 +1626,7 @@ impl ProductionController {
     // Output Management
     fn make_frame_provider(&self) -> impl Fn() -> image::RgbaImage + Send + Sync + 'static {
         let replay_engine = self.replay_engine.clone();
+        let guest_hub = self.remote_engine.webrtc_mgr.media.clone();
         let switcher = self.switcher.clone();
         let active_inputs = self.active_inputs.clone();
         let graphics = self.graphics_engine.clone();
@@ -1655,9 +1666,15 @@ impl ProductionController {
             let vs_ref = virtual_studio.clone();
 
             let replay_ref = replay_engine.clone();
+            let guest_hub = guest_hub.clone();
+            let switcher_ref = switcher.clone();
             let mut resolve = move |source_id: &str| -> Option<image::RgbaImage> {
                 if source_id == crate::playback::replay::REPLAY_SOURCE_ID {
                     return replay_ref.get_playout_rgba();
+                }
+                if let Some(n) = crate::switcher::model::parse_sub_mix_source_id(source_id) {
+                    let act = active.read();
+                    return switcher_ref.render_sub_mix_frame(n, |s| act.get(s).and_then(|i| i.get_latest_rgba_frame()));
                 }
                 let (virtual_clone_id, color_key_cfg) = {
                     let proj = proj_ref.read();
@@ -1673,7 +1690,9 @@ impl ProductionController {
                     }
                 };
 
-                let frame_opt = {
+                let guest_frame = crate::remote::guest_media::GuestMediaHub::guest_id_from_input(source_id)
+                    .and_then(|gid| guest_hub.latest_video(gid));
+                let frame_opt = if guest_frame.is_some() { guest_frame } else {
                     let act = active.read();
                     if let Some(inst) = act.get(source_id) {
                         inst.get_latest_rgba_frame()
@@ -1751,6 +1770,7 @@ impl ProductionController {
     }
 
     pub fn make_audio_provider(&self) -> impl Fn(usize) -> Vec<u8> + Send + Sync + 'static {
+        let guest_hub = self.remote_engine.webrtc_mgr.media.clone();
         let active_inputs = self.active_inputs.clone();
         let switcher = self.switcher.clone();
         let audio_engine = self.audio_engine.clone();
@@ -1771,8 +1791,15 @@ impl ProductionController {
                 };
 
                 if is_audible {
-                    if let Some(inst) = inputs.get(&ch.input_id) {
-                        if let Some(chunk) = inst.pull_audio_chunk().or_else(|| inst.get_latest_audio_chunk()) {
+                    let guest_chunk = crate::remote::guest_media::GuestMediaHub::guest_id_from_input(&ch.input_id)
+                        .and_then(|gid| guest_hub.pull_audio(gid));
+                    let local_chunk = || {
+                        inputs
+                            .get(&ch.input_id)
+                            .and_then(|inst| inst.pull_audio_chunk().or_else(|| inst.get_latest_audio_chunk()))
+                    };
+                    {
+                        if let Some(chunk) = guest_chunk.or_else(local_chunk) {
                             let mut channel_samples: Vec<i16> = chunk
                                 .chunks_exact(2)
                                 .map(|b| i16::from_le_bytes([b[0], b[1]]))
@@ -2594,6 +2621,66 @@ impl ProductionController {
         due.len()
     }
 
+    /// Opens MIDI inputs and routes mapped messages to macros / actions. Call once at start.
+    pub fn spawn_midi_listener(self: &Arc<Self>) {
+        let ctrl = self.clone();
+        let handler: crate::automation::midi::MidiHandler = Arc::new(move |mapping, value| {
+            let c = ctrl.clone();
+            tauri::async_runtime::spawn(async move {
+                let res = if let Some(macro_id) = mapping.target_macro_id.clone() {
+                    c.automation_run_macro(&macro_id, "midi").await.map(|_| ())
+                } else if let Some(action_id) = mapping.target_action_id.clone() {
+                    let mut parameters = std::collections::HashMap::new();
+                    if let Some(v) = value {
+                        parameters.insert("faderDb".to_string(), serde_json::json!(v));
+                        parameters.insert("value".to_string(), serde_json::json!(v));
+                    }
+                    c.automation_execute_action(&ActionInvocation { action_id, parameters }).await
+                } else {
+                    Ok(())
+                };
+                if let Err(e) = res {
+                    c.logs.push("WARN", "MIDI", format!("Mapping '{}' failed: {e}", mapping.name));
+                }
+            });
+        });
+        self.automation_engine.midi.start_listener(handler);
+    }
+
+    /// Makes each remote guest appear as a switchable input (`guest-<id>`) with its own mixer
+    /// channel as soon as their first video frame arrives. Call once at application start.
+    pub fn spawn_guest_media_bridge(self: &Arc<Self>) {
+        let ctrl = self.clone();
+        self.remote_engine.webrtc_mgr.media.set_on_video_started(Arc::new(move |guest_id| {
+            let (ctrl, guest_id) = (ctrl.clone(), guest_id.to_string());
+            // add_input builds a pipeline; never do that on a GStreamer streaming thread.
+            let _ = std::thread::Builder::new().name("guest-input".into()).spawn(move || {
+                if let Err(e) = ctrl.ensure_guest_input(&guest_id) {
+                    ctrl.logs.push("WARN", "RemoteGuest", format!("Could not add input for guest {guest_id}: {e}"));
+                }
+            });
+        }));
+    }
+
+    /// Adds the switcher input for a connected guest if it does not exist yet.
+    pub fn ensure_guest_input(&self, guest_id: &str) -> Result<(), LiveStudioError> {
+        let input_id = crate::remote::guest_media::GuestMediaHub::input_id(guest_id);
+        if self.current_project.read().inputs.iter().any(|i| i.id == input_id) {
+            return Ok(());
+        }
+        let name = self
+            .remote_engine
+            .guest_mgr
+            .list_invitations()
+            .into_iter()
+            .find(|i| i.id == guest_id)
+            .map(|i| i.guest_name)
+            .unwrap_or_else(|| "Remote Guest".to_string());
+        self.add_input(InputItem::new(&input_id, &format!("Guest: {name}"), InputType::RemoteGuest, guest_id))?;
+        self.logs.push("INFO", "RemoteGuest", format!("Guest '{name}' is now available as input '{input_id}'"));
+        Ok(())
+    }
+
     /// Starts the background dispatcher that fires due playback cues and automation (macro) cues.
     /// Call once at application start with the shared controller.
     pub fn spawn_cue_dispatcher(self: &Arc<Self>) {
@@ -3044,6 +3131,7 @@ impl ProductionController {
         let active_inputs = self.active_inputs.clone();
         let aux_id = id.to_string();
         let replay_engine = self.replay_engine.clone();
+        let guests = self.remote_engine.webrtc_mgr.media.clone();
 
         let _ = std::thread::Builder::new()
             .name(format!("aux-feeder-{aux_id}"))
@@ -3053,9 +3141,20 @@ impl ProductionController {
                     let start = std::time::Instant::now();
                     let active = active_inputs.clone();
                     let replay = replay_engine.clone();
+                    let guests = guests.clone();
+                    let sw = switcher.clone();
                     let clean_frame = switcher.render_program_frame(move |src| {
                         if src == crate::playback::replay::REPLAY_SOURCE_ID {
                             return replay.get_playout_rgba();
+                        }
+                        if let Some(n) = crate::switcher::model::parse_sub_mix_source_id(src) {
+                            let act = active.read();
+                            return sw.render_sub_mix_frame(n, |s| act.get(s).and_then(|i| i.get_latest_rgba_frame()));
+                        }
+                        if let Some(f) = crate::remote::guest_media::GuestMediaHub::guest_id_from_input(src)
+                            .and_then(|gid| guests.latest_video(gid))
+                        {
+                            return Some(f);
                         }
                         active.read().get(src).and_then(|inst| inst.get_latest_rgba_frame())
                     });

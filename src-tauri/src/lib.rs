@@ -83,6 +83,10 @@ pub fn run() {
             commands::switcher_get_status,
             commands::switcher_set_transition_type,
             commands::switcher_set_stinger,
+            commands::switcher_list_sub_mixes,
+            commands::switcher_set_sub_mix_preview,
+            commands::switcher_set_sub_mix_program,
+            commands::switcher_cut_sub_mix,
             commands::switcher_set_transition_duration,
             commands::switcher_get_preview_frame,
             commands::switcher_get_program_frame,
@@ -297,6 +301,8 @@ pub fn run() {
         ])
         .setup(|app| {
             app.state::<core::state::AppState>().controller.spawn_cue_dispatcher();
+            app.state::<core::state::AppState>().controller.spawn_midi_listener();
+            app.state::<core::state::AppState>().controller.spawn_guest_media_bridge();
             info!("LiveStudio Pro native runtime setup complete");
             #[cfg(debug_assertions)]
             {

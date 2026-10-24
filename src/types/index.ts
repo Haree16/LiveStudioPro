@@ -1497,3 +1497,13 @@ export interface UpdateCheckResult {
 
 
 
+
+export interface SubMixBus {
+  mixIndex: number;
+  previewSourceId: string | null;
+  programSourceId: string | null;
+  transitionType: TransitionType;
+  transitionDurationMs: number;
+  inTransition: boolean;
+  transitionProgress: number;
+}

@@ -18,6 +18,7 @@ import { AutosaveRecoveryModal } from "./components/AutosaveRecoveryModal";
 import { MediaInspectDrawer } from "./components/MediaInspectDrawer";
 import { SceneEditorModal } from "./components/SceneEditorModal";
 import { DisplaySettingsModal } from "./components/DisplaySettingsModal";
+import { SubMixModal } from "./components/SubMixModal";
 import { AudioDspModal } from "./components/AudioDspModal";
 import { GraphicsManagerModal } from "./components/GraphicsManagerModal";
 import { PlaylistManagerModal } from "./components/PlaylistManagerModal";
@@ -591,6 +592,7 @@ export const AppContent: React.FC = () => {
       <MediaInspectDrawer />
       <SceneEditorModal />
       <DisplaySettingsModal />
+      <SubMixModal />
       <OutputProfilesDialog
         isOpen={isProfilesOpen}
         onClose={() => setActiveModal(null)}

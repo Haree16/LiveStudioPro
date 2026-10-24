@@ -86,44 +86,105 @@
       }
     }
 
+    let pc = null;
+    let statsTimer = null;
+    let lastBytes = 0;
+    let lastBytesAt = 0;
+
+    function setBadge(text, color) {
+      const b = document.getElementById('status-badge');
+      b.textContent = text;
+      b.style.background = color;
+    }
+
+    async function startPeer() {
+      if (pc) { pc.close(); }
+      pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+      if (localStream) {
+        localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+      } else {
+        pc.addTransceiver('video', { direction: 'sendonly' });
+        pc.addTransceiver('audio', { direction: 'sendonly' });
+      }
+      pc.onicecandidate = (e) => {
+        if (e.candidate && ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'iceCandidate', candidate: e.candidate.toJSON() }));
+        }
+      };
+      pc.onconnectionstatechange = () => {
+        if (pc.connectionState === 'connected') setBadge('Live', '#059669');
+        else if (pc.connectionState === 'failed') setBadge('Connection failed', '#dc2626');
+        else setBadge('Connecting…', '#d97706');
+      };
+      pc.ontrack = (e) => {
+        // Return feed (Program) from the producer, when offered.
+        document.getElementById('returnVideo').srcObject = e.streams[0];
+      };
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      ws.send(JSON.stringify({ type: 'offer', sdp: offer.sdp }));
+    }
+
+    async function collectStats() {
+      if (!pc || !ws || ws.readyState !== WebSocket.OPEN) return;
+      let rtt = 0, loss = 0, jitter = 0, bytes = 0, width = 0, height = 0, fps = 0;
+      (await pc.getStats()).forEach(r => {
+        if (r.type === 'candidate-pair' && r.state === 'succeeded' && r.currentRoundTripTime != null) {
+          rtt = r.currentRoundTripTime * 1000;
+        }
+        if (r.type === 'remote-inbound-rtp' && r.kind === 'video') {
+          loss = (r.fractionLost || 0) * 100;
+          jitter = (r.jitter || 0) * 1000;
+        }
+        if (r.type === 'outbound-rtp' && r.kind === 'video') {
+          bytes = r.bytesSent || 0;
+          width = r.frameWidth || 0;
+          height = r.frameHeight || 0;
+          fps = Math.round(r.framesPerSecond || 0);
+        }
+      });
+      const now = performance.now();
+      const kbps = lastBytesAt ? Math.round(((bytes - lastBytes) * 8) / (now - lastBytesAt)) : 0;
+      lastBytes = bytes; lastBytesAt = now;
+      ws.send(JSON.stringify({
+        type: 'stats', rtt, packetLoss: loss, jitter, bitrate: Math.max(0, kbps),
+        resolution: width && height ? `${width}x${height}` : '', fps
+      }));
+    }
+
     function connectWs() {
+      if (ws) { try { ws.close(); } catch (_) {} }
       const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const wsUrl = `${proto}//${window.location.host}/ws/guest/${token}`;
       ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
-        document.getElementById('status-badge').textContent = 'Live';
-        document.getElementById('status-badge').style.background = '#059669';
-        // Send initial mock offer or real WebRTC offer
-        ws.send(JSON.stringify({ type: 'offer', sdp: 'v=0\r\no=guest 1 1 IN IP4 127.0.0.1\r\ns=-\r\n' }));
+        setBadge('Connecting…', '#d97706');
+        startPeer().catch(err => setBadge('Error: ' + err.message, '#dc2626'));
       };
 
-      ws.onmessage = (evt) => {
+      ws.onmessage = async (evt) => {
         const msg = JSON.parse(evt.data);
-        if (msg.type === 'answer') {
-          console.log('Received WebRTC answer from LiveStudio Pro backend');
+        try {
+          if (msg.type === 'answer') {
+            await pc.setRemoteDescription({ type: 'answer', sdp: msg.sdp });
+          } else if (msg.type === 'iceCandidate') {
+            await pc.addIceCandidate(msg.candidate);
+          } else if (msg.type === 'error') {
+            setBadge('Error: ' + msg.message, '#dc2626');
+          }
+        } catch (err) {
+          console.warn('Signalling error:', err);
         }
       };
 
       ws.onclose = () => {
-        document.getElementById('status-badge').textContent = 'Disconnected';
-        document.getElementById('status-badge').style.background = '#dc2626';
+        if (pc) { pc.close(); pc = null; }
+        setBadge('Disconnected', '#dc2626');
       };
 
-      // Periodic stats telemetry
-      setInterval(() => {
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({
-            type: 'stats',
-            rtt: 12 + Math.floor(Math.random() * 5),
-            packetLoss: 0.0,
-            jitter: 1.2,
-            bitrate: 2500,
-            resolution: '1280x720',
-            fps: 30
-          }));
-        }
-      }, 2000);
+      clearInterval(statsTimer);
+      statsTimer = setInterval(() => collectStats().catch(() => {}), 2000);
     }
 
     document.getElementById('btnMuteMic').addEventListener('click', function() {

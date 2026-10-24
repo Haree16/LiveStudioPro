@@ -49,6 +49,15 @@ pub struct SubMixBus {
     pub transition_progress: f32,
 }
 
+/// Source id under which a sub-mix's Program output can be cued like any input ("mix:2").
+pub fn sub_mix_source_id(mix_index: u32) -> String {
+    format!("mix:{mix_index}")
+}
+
+pub fn parse_sub_mix_source_id(id: &str) -> Option<u32> {
+    id.strip_prefix("mix:")?.parse().ok().filter(|n| (2..=16).contains(n))
+}
+
 impl SubMixBus {
     pub fn new(mix_index: u32) -> Self {
         Self {

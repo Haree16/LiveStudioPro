@@ -276,7 +276,13 @@ impl MediaInputInstance {
                     )
                 }
             }
-            InputType::VirtualInput | InputType::RemoteGuest => (
+            // Remote guest picture comes from the WebRTC hub (see ProductionController); this
+            // pipeline only supplies black until the guest's first frame arrives.
+            InputType::RemoteGuest => (
+                "videotestsrc pattern=black is-live=true ! videoconvert ! videoscale ! video/x-raw,format=RGBA,width=1280,height=720 ! videobalance name=bal ! appsink name=vsink max-buffers=2 drop=true sync=false".to_string(),
+                true,
+            ),
+            InputType::VirtualInput => (
                 "videotestsrc pattern=ball is-live=true ! videoconvert ! videoscale ! video/x-raw,format=RGBA,width=1280,height=720 ! videobalance name=bal ! appsink name=vsink max-buffers=2 drop=true sync=false".to_string(),
                 true,
             ),

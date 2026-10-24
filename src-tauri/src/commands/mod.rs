@@ -396,6 +396,26 @@ pub fn switcher_get_status(state: State<'_, AppState>) -> SwitcherStatus {
 }
 
 #[tauri::command]
+pub fn switcher_list_sub_mixes(state: State<'_, AppState>) -> Vec<crate::switcher::SubMixBus> {
+    state.controller.switcher_list_sub_mixes()
+}
+
+#[tauri::command]
+pub fn switcher_set_sub_mix_preview(state: State<'_, AppState>, mix_index: u32, source_id: Option<String>) -> Result<(), LiveStudioError> {
+    state.controller.sub_mix_set_source(mix_index, source_id, false)
+}
+
+#[tauri::command]
+pub fn switcher_set_sub_mix_program(state: State<'_, AppState>, mix_index: u32, source_id: Option<String>) -> Result<(), LiveStudioError> {
+    state.controller.sub_mix_set_source(mix_index, source_id, true)
+}
+
+#[tauri::command]
+pub fn switcher_cut_sub_mix(state: State<'_, AppState>, mix_index: u32) -> Result<(), LiveStudioError> {
+    state.controller.sub_mix_cut(mix_index)
+}
+
+#[tauri::command]
 pub fn switcher_set_stinger(
     state: State<'_, AppState>,
     input_id: Option<String>,
@@ -512,17 +532,81 @@ pub fn switcher_set_multiview_layout(
     state.controller.set_multiview_layout(layout);
 }
 
-#[tauri::command]
-pub fn switcher_enumerate_displays(state: State<'_, AppState>) -> Vec<DisplayInfo> {
-    state.controller.enumerate_displays()
+fn monitor_rects(app: &tauri::AppHandle) -> Vec<crate::core::display::MonitorRect> {
+    app.available_monitors()
+        .unwrap_or_default()
+        .iter()
+        .map(|m| crate::core::display::MonitorRect {
+            name: m.name().cloned(),
+            width: m.size().width,
+            height: m.size().height,
+            x: m.position().x,
+            y: m.position().y,
+            scale_factor: m.scale_factor(),
+        })
+        .collect()
 }
 
 #[tauri::command]
-pub fn switcher_set_display_output(
+pub fn switcher_enumerate_displays(app: tauri::AppHandle, state: State<'_, AppState>) -> Vec<DisplayInfo> {
+    let primary = app
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .map(|m| (m.position().x, m.position().y));
+    let active = state.controller.get_switcher_status().active_display_output;
+    crate::core::display::displays_from_monitors(&monitor_rects(&app), primary, active.as_deref())
+}
+
+/// Opens (or closes, when `display_id` is None) a borderless fullscreen window on the chosen
+/// monitor that renders the Program bus. Async so window creation never blocks the main thread.
+#[tauri::command]
+pub async fn switcher_set_display_output(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     display_id: Option<String>,
-) {
-    state.controller.set_display_output(display_id);
+) -> Result<(), LiveStudioError> {
+    use crate::core::display::{parse_display_id, PROGRAM_OUTPUT_WINDOW};
+    use tauri::Manager;
+
+    if let Some(existing) = app.get_webview_window(PROGRAM_OUTPUT_WINDOW) {
+        let _ = existing.close();
+    }
+
+    let Some(id) = display_id else {
+        state.controller.set_display_output(None);
+        return Ok(());
+    };
+
+    let monitors = monitor_rects(&app);
+    let mon = parse_display_id(&id)
+        .and_then(|i| monitors.get(i).cloned())
+        .ok_or_else(|| LiveStudioError::validation(format!("Display '{id}' is not connected"), Some("displayId")))?;
+
+    let scale = if mon.scale_factor > 0.0 { mon.scale_factor } else { 1.0 };
+    let window = tauri::WebviewWindowBuilder::new(
+        &app,
+        PROGRAM_OUTPUT_WINDOW,
+        tauri::WebviewUrl::App("index.html#program-output".into()),
+    )
+    .title("LiveStudio Pro - Program Output")
+    .decorations(false)
+    .position(mon.x as f64 / scale, mon.y as f64 / scale)
+    .inner_size(mon.width as f64 / scale, mon.height as f64 / scale)
+    .build()
+    .map_err(|e| LiveStudioError::device(format!("Could not open output window: {e}"), None))?;
+    let _ = window.set_fullscreen(true);
+
+    // If the operator closes the window itself, the switcher must not keep claiming it is live.
+    let controller = state.controller.clone();
+    window.on_window_event(move |ev| {
+        if matches!(ev, tauri::WindowEvent::Destroyed) {
+            controller.set_display_output(None);
+        }
+    });
+
+    state.controller.set_display_output(Some(id));
+    Ok(())
 }
 
 // Phase 4: Output, Streaming & Recording Commands

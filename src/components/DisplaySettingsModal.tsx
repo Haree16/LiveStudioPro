@@ -8,6 +8,7 @@ export const DisplaySettingsModal: React.FC = () => {
   const { activeModal, setActiveModal, switcherStatus, refreshSwitcherStatus } = useStudio();
   const [displays, setDisplays] = useState<DisplayInfo[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchDisplays = async () => {
     setLoading(true);
@@ -32,12 +33,12 @@ export const DisplaySettingsModal: React.FC = () => {
   const activeDisplayId = switcherStatus?.activeDisplayOutput;
 
   const handleToggleFullscreen = async (displayId: string) => {
-    if (activeDisplayId === displayId) {
-      // Deactivate
-      await api.setDisplayOutput(null);
-    } else {
-      // Activate on this display
-      await api.setDisplayOutput(displayId);
+    setError(null);
+    try {
+      // Toggle: close the output window, or open it on this display.
+      await api.setDisplayOutput(activeDisplayId === displayId ? null : displayId);
+    } catch (e: any) {
+      setError(e?.message || (typeof e === "string" ? e : JSON.stringify(e)));
     }
     await refreshSwitcherStatus();
     await fetchDisplays();
@@ -81,6 +82,10 @@ export const DisplaySettingsModal: React.FC = () => {
             </button>
           </div>
 
+          {error && <div className="text-xs text-red-400">{error}</div>}
+          {!loading && displays.length === 0 && (
+            <div className="text-xs text-slate-400">No monitors detected by the operating system.</div>
+          )}
           <div className="space-y-3">
             {displays.map((disp) => {
               const isActive = activeDisplayId === disp.id;

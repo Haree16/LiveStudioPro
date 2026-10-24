@@ -97,3 +97,9 @@ Telestrator wiring (3d), 16×16 audio matrix (5d, + ASIO on Windows 5d, SDK lice
 ## Recommended first implementation phase
 
 **Phase 0 plus Phase 1.1 and 1.7** (≈ 6–7 days): make the test suite honest and green, get Windows CI passing, make scheduled cues actually fire, and stop the UI from presenting mock features as working. Then Phase 1.2/1.3/1.4 (replay playout, real transitions, external output) as the first user-visible parity gains.
+
+---
+
+## Progress log (2026-10-24)
+
+Done: 0.1, 0.2, 0.3, 1.1, 1.2, 1.3 (Zoom, Stinger), 1.4, 1.5, 1.6, 1.7 (partial: Web Browser input and NDI/DeckLink aux labelled unavailable; PSD, Singular, VST3, matrix have no UI to label), 1.8 (receive path). Not done: 0.4 push + 0.5 Windows CI confirmation (nothing pushed), 1.8 return feed / mix-minus / TURN, Fly/Cube/Merge transitions, sub-mix persistence.

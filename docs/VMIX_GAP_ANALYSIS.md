@@ -211,3 +211,22 @@ Strict view (Verified only): 22 ÷ 73 = **30.1%**. Optimistic view (Verified + P
 - Claim 167/167 tests pass; not reproducible (see §2).
 - Claim missing audio-provider summing, missing aux/ISO feeder threads, missing replay ingest and missing chroma-key wiring — all now exist in code, so those rows understate progress.
 - Claim 'Missing: 0' — several features (telestrator, 16x16 matrix, NDI input, GIF sequence, sub-mix UI) have no functional app path.
+
+## 7. Status update after implementation (2026-10-24)
+
+The following rows in §3 were true when the audit ran and have since been changed (tests in `src-tauri/tests/`; `cargo test` 137 pass, `vitest` 72 pass). Percentages in §4 are **not** recomputed; re-run the audit to refresh them.
+
+| ID | Was | Now | Evidence |
+|---|---|---|---|
+| PRJ / tests | phase12 uncompiled, 8 Vitest failures | all suites green | `phase12_tests.rs`, `src/test/*` |
+| PLY-03 | Scheduled cues never fire | **Fires** (playback cues; timed macro cues; confirmation-required cues are held `Armed`) | `scheduler_dispatch_tests.rs` |
+| PLY-05 | Replay cuts to live camera | **Plays buffered clip** at replay speed via virtual `__replay__` source | `replay_playout_tests.rs` |
+| SW-03 | Zoom = crossfade | **Spatial zoom** (Fly/Cube/Merge still missing) | `transition_quality_tests.rs` |
+| SW-04 | Stinger = blue band | **User media (alpha) stinger** with cut point; built-in band when none bound | `transition_quality_tests.rs` |
+| SW-07 | Hard-coded display list | **Real monitor enumeration + borderless fullscreen Program window** (Tauri `available_monitors`); mapping unit-tested, window opening **not exercised headless** | `core/display.rs` tests |
+| AUT-04 | MIDI enumeration only | **Live MIDI input** (hot-plug scan, device/channel filter, press-only buttons, fader scaling) -> macros/actions; routing unit-tested, **no physical device tested** | `midi_dispatch_tests.rs` |
+| SW-09 | Sub-mix state only | **Commands + UI + frame compositing** (`mix:N` source); routing not persisted in project | `sub_mix_tests.rs`, `SubMixModal.tsx` |
+| REM-02 | Guest media `fakesink`; browser page sent a fake offer | **Real WebRTC** (browser `RTCPeerConnection` <-> `webrtcbin`), VP8/Opus decoded into a hub; guest becomes input `guest-<id>` with mixer audio. Verified by an in-process loopback WebRTC peer, **not yet with a real browser** | `guest_webrtc_tests.rs` |
+| IN-11, OUT-07, OUT-08 | Mock presented as working | UI now labelled **not available** (Web Browser input, NDI and DeckLink aux destinations) | `InputLibrary.tsx`, `AuxOutputModal.tsx` |
+
+Known remaining limits of these changes: guest **return feed** (Program back to the guest) and mix-minus are not implemented; guest frames are not captured by Instant Replay or ISO recording; only VP8/Opus (and whatever `decodebin` can autoplug) are decoded; STUN only (no TURN); Wayland may ignore requested output-window position.

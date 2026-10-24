@@ -15,6 +15,8 @@
 
 **Weighted completion of 73 audited features: 51.4%** (22 Verified, 31 Partial, 12 UI-only/mock, 6 Missing, 2 Blocked, 1 Unknown); strict Verified-only 30.1%.
 
+**Later the same day:** scheduled cues, replay playout, Zoom/Stinger, external monitor output, live MIDI input, sub-mix UI and real remote-guest WebRTC were implemented; see `VMIX_GAP_ANALYSIS.md` §7. Rust now 137 pass, Vitest 72/72.
+
 ### Known corrections to rows in Section 1
 | Row | Doc says | Code says (2026-10-24) |
 | :--- | :--- | :--- |

@@ -1185,6 +1185,12 @@ export const InputLibrary: React.FC = () => {
               <p className="text-[11px] text-slate-400">
                 Renders a web URL, HTML animation, scoreboard, or live web widget as a full-rate video input.
               </p>
+              <div
+                role="status"
+                className="px-3 py-2 rounded border border-amber-600/40 bg-amber-950/40 text-amber-300 text-[11px] font-semibold"
+              >
+                Not available yet: no browser engine is wired in, so this input shows a test pattern instead of the page.
+              </div>
               <div className="space-y-1">
                 <label className="text-slate-300 font-semibold text-[11px]">Browser Input Label</label>
                 <input
@@ -1206,7 +1212,9 @@ export const InputLibrary: React.FC = () => {
               </div>
               <button
                 onClick={handleAddBrowser}
-                className="w-full py-2 bg-pink-600 hover:bg-pink-500 text-white font-bold rounded flex items-center justify-center gap-1.5 transition-colors"
+                disabled
+                title="Web browser input is not available yet"
+                className="w-full py-2 bg-pink-600 text-white font-bold rounded flex items-center justify-center gap-1.5 opacity-40 cursor-not-allowed"
               >
                 <Plus className="w-3.5 h-3.5" /> Add Web Browser Input
               </button>

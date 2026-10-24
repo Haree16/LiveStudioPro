@@ -132,6 +132,15 @@ export const MultiviewWorkspace: React.FC = () => {
           </button>
 
           <button
+            onClick={() => setActiveModal("sub-mix")}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1c2233] hover:bg-[#283147] text-slate-300 hover:text-white rounded text-xs font-semibold border border-[#2b3244] transition-colors"
+            title="Mix inputs 2–16 (sub-switchers)"
+          >
+            <Layers className="w-3.5 h-3.5 text-amber-400" />
+            <span>Mix Inputs</span>
+          </button>
+
+          <button
             onClick={() => setActiveModal("display-settings")}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1c2233] hover:bg-[#283147] text-slate-300 hover:text-white rounded text-xs font-semibold border border-[#2b3244] transition-colors"
             title="Configure Fullscreen External Display Output"

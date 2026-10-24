@@ -308,8 +308,12 @@ export const AuxOutputModal: React.FC<AuxOutputModalProps> = ({
                       <option value="windowDisplay">Window Display</option>
                       <option value="externalMonitor">External Monitor</option>
                       <option value="srtStream">SRT Stream</option>
-                      <option value="ndiStream">NDI Network Output</option>
-                      <option value="hardwareDeckLink">SDI Hardware (DeckLink)</option>
+                      <option value="ndiStream" disabled={currentConfig.destinationType !== "ndiStream"}>
+                        NDI Network Output (not available yet)
+                      </option>
+                      <option value="hardwareDeckLink" disabled={currentConfig.destinationType !== "hardwareDeckLink"}>
+                        SDI Hardware (DeckLink) (not available yet)
+                      </option>
                       <option value="virtualWebcam">V4L2 Virtual Webcam</option>
                     </select>
                   </div>
