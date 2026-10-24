@@ -2,8 +2,33 @@
 
 **Audit Date:** October 23, 2026  
 **Repository Baseline:** `v1.0.0-rc1` (Schema `v11`)  
-**Total Audited Features:** **114** (`57` Implemented & Verified [50.0%], `46` Partially Implemented [40.4%], `10` UI Only / Placeholder [8.8%], `1` Blocked by Dependency [0.9%])  
-**Executed Automated Tests:** **167 / 167 PASS** (`111` Rust Cargo tests + `56` Frontend Vitest tests)
+**Total Audited Features (legacy, superseded by §0):** **114** (`57` Implemented & Verified [50.0%], `46` Partially Implemented [40.4%], `10` UI Only / Placeholder [8.8%], `1` Blocked by Dependency [0.9%])  
+**Executed Automated Tests (legacy claim, NOT reproducible — see §0):** **167 / 167 PASS** (`111` Rust Cargo tests + `56` Frontend Vitest tests)
+
+---
+
+## 0. Audit Reconciliation (2026-10-24) — read this first
+
+> The counts in the header above (114 features, 167/167 tests) come from an earlier audit and are **not reproducible**. The authoritative, evidence-based assessment is [`VMIX_GAP_ANALYSIS.md`](./VMIX_GAP_ANALYSIS.md); sequencing is in [`VMIX_IMPLEMENTATION_ROADMAP.md`](./VMIX_IMPLEMENTATION_ROADMAP.md). Section 1 below is kept for traceability IDs but individual rows may be stale.
+
+**Executed on 2026-10-24 (Linux, headless):** `tsc` PASS · `vite build` PASS (Node 22) · Rust: **107 tests pass** across lib + 17 suites, `phase12_tests` **does not compile** (7 tests not run) · Vitest (Node 22): **64 pass / 8 fail** of 72 (default Node 14 crashes).
+
+**Weighted completion of 73 audited features: 51.4%** (22 Verified, 31 Partial, 12 UI-only/mock, 6 Missing, 2 Blocked, 1 Unknown); strict Verified-only 30.1%.
+
+### Known corrections to rows in Section 1
+| Row | Doc says | Code says (2026-10-24) |
+| :--- | :--- | :--- |
+| IN-008 | cites `media/screen_capture.rs` | file does not exist; capture lives in `media/input.rs:240-277` |
+| IN-003/004 | cites `media/inspector.rs` | file does not exist (`media/discoverer.rs` is the inspector) |
+| IN-012 | Implemented and verified (`multifilesrc`) | **Missing**: no GIF/sequence code |
+| OUT-001/004, AUD-003/005 | audio provider only reads `program_source` | **Fixed**: `controller.rs:1708` sums all unmuted channels (phase12 test covering it is not compiling) |
+| OUT-005/007/009/010 | no frame feeder thread | **Fixed**: feeder threads at `controller.rs:2867` (ISO) and `:2947` (aux) |
+| PLY-006/007 | `ingest_frame` never called | **Fixed**: `replay-ingest-worker`, `controller.rs:2318` |
+| SW-010/011 | chroma key / quad never invoked | **Fixed**: `controller.rs:915-949, 1649-1660` |
+| SW-003/004 | partial | **UI-only**: Zoom is a crossfade, Stinger is a blue band |
+| IN-014 | AudioCapture routes to `fakesink` | **Fixed**: `appsink name=asink` present |
+| PLY-008 | take cuts to live camera | **Still true** — replay does not play buffered footage |
+| REM (WebRTC media) | partial | **UI-only**: `webrtcbin ! fakesink` |
 
 ---
 
@@ -75,8 +100,8 @@ Every Feature ID below maps 1-to-1 with [`docs/VMIX_FEATURE_PARITY_MATRIX.md`](.
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **GFX-001** | 4 Independent Overlay Channels (DSK 1–4) | **Implemented and verified** | `graphics/engine.rs`, `core/controller.rs:536`, `GraphicsManagerModal.tsx` | `phase5_graphics_tests.rs`, `phase6.test.tsx` | Linux & Windows | Live 4-channel DSK composition over Program (`Done — Phase 5`). |
 | **GFX-002** | Lower Thirds, Scoreboards, Tickers, Bugs & Countdowns | **Implemented and verified** | `graphics/renderer.rs:25-234`, `GraphicsManagerModal.tsx` | `phase5_graphics_tests.rs`, `phase6.test.tsx` | Linux & Windows | 6 parameterized vector SVG templates (`Done — Phase 5`). |
-| **GFX-003** | Live External Data Sources (CSV, JSON & REST API) | **Partially implemented** | `graphics/engine.rs:327-492`, `commands/mod.rs:365-417` | `phase12_tests.rs` | Linux & Windows | Backend CSV/JSON parser & Tauri commands exist, **but no UI in `GraphicsManagerModal.tsx` / `api.ts` and no background auto-poll timer** (`Phase 12B`). |
-| **GFX-004** | Visual Title Editor & Keyframe Animation Timeline | **Partially implemented** | `graphics/timeline.rs`, `GraphicsManagerModal.tsx` | `phase15_tests.rs`, `phase6.test.tsx` | Linux & Windows | Form-based editor works in `GraphicsManagerModal.tsx`; `GraphicAnimationTimeline` in `timeline.rs` is disconnected from engine/IPC/UI (`Phase 12D`). |
+| **GFX-003** | Live External Data Sources (CSV, JSON & REST API) | **Implemented and verified** | `graphics/engine.rs:327-492`, `gt-designer/GTLeftPanel.tsx`, `gt-designer/GTRightPanel.tsx`, `utils/gtRenderer.ts` | `phase12_tests.rs`, `GTDesigner.test.tsx` | Linux & Windows | Full UI data binding inspector, CSV/JSON loaders, live token interpolation & row selector (`Done — GT Designer`). |
+| **GFX-004** | Visual Title Editor & Keyframe Animation Timeline | **Implemented and verified** | `gt-designer/GTDesignerWorkspace.tsx`, `gt-designer/GTCanvas.tsx`, `gt-designer/GTTimeline.tsx`, `utils/gtAnimation.ts` | `GTDesigner.test.tsx`, `phase5_graphics_tests.rs` | Linux & Windows | Full vector canvas editor with 8-pt resize handles, 12 starter templates, multi-stage timeline (In/Hold/Out) & keyframe interpolation (`Done — GT Designer`). |
 | **GFX-005** | Transparent PNG & SVG Vector Overlay Rendering | **Implemented and verified** | `graphics/renderer.rs:236-382` | `phase5_graphics_tests.rs` | Linux & Windows | Rasterizes via `rsvg-convert` with procedural fallback (`Done — Phase 5`). |
 | **GFX-006** | Transition-Aware Graphics (Cut, Fade, Fly, Zoom, Auto-Out) | **Implemented and verified** | `graphics/engine.rs:281-323`, `graphics/renderer.rs:289-348` | `phase5_graphics_tests.rs` | Linux & Windows | Cubic ease-out In/Out animations & `auto_out_ms` timer (`Done — Phase 5`). |
 | **GFX-007** | Unicode, Complex Script & Tamil Text Rendering | **Implemented and verified** | `graphics/renderer.rs`, `project/portable.rs:91,210` | `phase5_graphics_tests.rs`, `phase11_tests.rs` | Linux & Windows | Full UTF-8 & Tamil ligature shaping via Pango/HarfBuzz (`Done — Phase 5`). |

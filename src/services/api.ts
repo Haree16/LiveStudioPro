@@ -578,6 +578,56 @@ export const api = {
   },
 
   // =========================================================================
+  // GT Designer Studio APIs
+  // =========================================================================
+
+  async gtSaveTemplate(templateJson: string, templateId: string): Promise<string> {
+    try {
+      return await invoke<string>("gt_save_template", { templateJson, templateId });
+    } catch {
+      localStorage.setItem(`gt_tpl_${templateId}`, templateJson);
+      return `local://gt-templates/${templateId}.gtp`;
+    }
+  },
+
+  async gtLoadTemplate(templateId: string): Promise<string | null> {
+    try {
+      return await invoke<string>("gt_load_template", { templateId });
+    } catch {
+      return localStorage.getItem(`gt_tpl_${templateId}`);
+    }
+  },
+
+  async gtListTemplates(): Promise<string[]> {
+    try {
+      return await invoke<string[]>("gt_list_templates");
+    } catch {
+      const results: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith("gt_tpl_")) {
+          const val = localStorage.getItem(key);
+          if (val) results.push(val);
+        }
+      }
+      return results;
+    }
+  },
+
+  async gtDeleteTemplate(templateId: string): Promise<boolean> {
+    try {
+      return await invoke<boolean>("gt_delete_template", { templateId });
+    } catch {
+      localStorage.removeItem(`gt_tpl_${templateId}`);
+      return true;
+    }
+  },
+
+  async gtRenderSvgToPng(svgContent: string, width: number, height: number): Promise<string> {
+    return invoke<string>("gt_render_svg_to_png", { svgContent, width, height });
+  },
+
+  // =========================================================================
   // Phase 7: Playlists
   // =========================================================================
 

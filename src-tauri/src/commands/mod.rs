@@ -24,7 +24,7 @@ use crate::project::{
     RelinkApplyResult, RelinkMatchMode, RelinkScanReport, RestoreExecutionReport, VideoSettings,
 };
 use crate::audio::{AudioBusRouting, AudioMeterReading, AudioMixerConfig, DynamicsConfig, EqConfig};
-use crate::graphics::{DataSourceRecord, FieldBinding, GraphicItem, GraphicsProjectConfig};
+use crate::graphics::{DataSourceRecord, FieldBinding, GraphicItem, GraphicsProjectConfig, GtTemplateStore};
 use crate::playback::{
     ClipExportRequest, EventProductionConfig, MultiCamSourceInfo, Playlist,
     PlaylistItem, ReplayBufferHealth, ReplayClip, ReplayConfig, ScheduledCue,
@@ -893,6 +893,47 @@ pub fn graphics_remove_field_binding(
     field_key: String,
 ) -> GraphicsProjectConfig {
     state.controller.graphics_remove_field_binding(&graphic_id, &field_key)
+}
+
+// =============================================================================
+// GT Designer Studio Commands
+// =============================================================================
+
+#[tauri::command]
+pub fn gt_save_template(
+    template_json: String,
+    template_id: String,
+) -> Result<String, LiveStudioError> {
+    GtTemplateStore::save_template(&template_json, &template_id)
+        .map(|p| p.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub fn gt_load_template(template_id: String) -> Result<String, LiveStudioError> {
+    GtTemplateStore::load_template(&template_id)
+}
+
+#[tauri::command]
+pub fn gt_list_templates() -> Result<Vec<String>, LiveStudioError> {
+    GtTemplateStore::list_templates()
+}
+
+#[tauri::command]
+pub fn gt_delete_template(template_id: String) -> Result<bool, LiveStudioError> {
+    GtTemplateStore::delete_template(&template_id)
+}
+
+#[tauri::command]
+pub async fn gt_render_svg_to_png(
+    svg_content: String,
+    width: u32,
+    height: u32,
+) -> Result<String, LiveStudioError> {
+    tokio::task::spawn_blocking(move || {
+        GtTemplateStore::render_svg_to_png_data_url(&svg_content, width, height)
+    })
+    .await
+    .map_err(|e| LiveStudioError::internal(format!("Task execution failed: {e}")))?
 }
 
 // =============================================================================

@@ -148,6 +148,12 @@ pub fn run() {
             commands::graphics_prev_data_source_row,
             commands::graphics_set_field_binding,
             commands::graphics_remove_field_binding,
+            // GT Designer Studio Commands
+            commands::gt_save_template,
+            commands::gt_load_template,
+            commands::gt_list_templates,
+            commands::gt_delete_template,
+            commands::gt_render_svg_to_png,
             // Phase 7: Playlists, Replay, Export, Scheduling
             commands::playlist_create,
             commands::playlist_update,

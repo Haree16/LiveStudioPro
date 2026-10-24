@@ -43,12 +43,13 @@ import { MediaRelinkModal } from "./components/MediaRelinkModal";
 import { SystemCompatibilityModal } from "./components/SystemCompatibilityModal";
 import { BackupStorageModal } from "./components/BackupStorageModal";
 import { ShutdownConfirmationModal } from "./components/ShutdownConfirmationModal";
+import { GTDesignerWorkspace } from "./components/gt-designer/GTDesignerWorkspace";
 import {
   KeyboardShortcutsModal,
   DEFAULT_SHORTCUTS,
   type ShortcutMap,
 } from "./components/KeyboardShortcutsModal";
-import { Monitor, Layout, Layers, Tv, Radio, Disc, Sliders, Keyboard, Type, Film, RotateCcw, Calendar, Scissors, SlidersHorizontal, FolderPlus, Users, Tablet, Camera, Bell, Globe, Zap, ShieldAlert, Share2, Palette, Timer, Activity, Box } from "lucide-react";
+import { Monitor, Layout, Layers, Tv, Radio, Disc, Sliders, Keyboard, Type, Film, RotateCcw, Calendar, Scissors, SlidersHorizontal, FolderPlus, Users, Tablet, Camera, Bell, Globe, Zap, ShieldAlert, Share2, Palette, Timer, Activity, Box, Sparkles } from "lucide-react";
 import type { ReplayClip, HotkeyMapping } from "./types";
 
 export const AppContent: React.FC = () => {
@@ -307,6 +308,15 @@ export const AppContent: React.FC = () => {
           >
             <Tv className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
             <span>External Display</span>
+          </button>
+
+          <button
+            onClick={() => setActiveModal("gt-designer")}
+            className="flex items-center gap-1.5 h-8 px-3 rounded-md bg-gradient-to-r from-purple-700 via-indigo-600 to-purple-800 hover:from-purple-600 hover:to-indigo-500 text-white font-bold text-xs whitespace-nowrap shrink-0 border border-purple-400/60 transition-all shadow-sm shadow-purple-950/60"
+            title="Open LiveStudio Pro GT Title & Graphics Designer"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+            <span>GT Designer</span>
           </button>
 
           <button
@@ -636,6 +646,12 @@ export const AppContent: React.FC = () => {
 
       {/* Phase 5: Titles & Graphics Overlay Studio */}
       {activeModal === "graphics-manager" && <GraphicsManagerModal />}
+
+      {/* GT Designer Studio */}
+      <GTDesignerWorkspace
+        isOpen={activeModal === "gt-designer"}
+        onClose={() => setActiveModal(null)}
+      />
 
       {/* Phase 7: Media Playlists */}
       <PlaylistManagerModal

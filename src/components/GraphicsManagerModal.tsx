@@ -317,12 +317,23 @@ export const GraphicsManagerModal: React.FC = () => {
             </div>
           </div>
 
-          <button
-            onClick={() => setActiveModal(null)}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-[#1f2537] transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setActiveModal("gt-designer")}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold shadow-md shadow-purple-950/60 transition-all border border-purple-400/40"
+              title="Open LiveStudio Pro GT Title & Graphics Designer"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+              <span>Open GT Designer</span>
+            </button>
+
+            <button
+              onClick={() => setActiveModal(null)}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-[#1f2537] transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Content Body */}

@@ -81,4 +81,8 @@ impl LiveStudioError {
             device_id: device_id.map(String::from),
         }
     }
+
+    pub fn internal(msg: impl Into<String>) -> Self {
+        Self::Internal(msg.into())
+    }
 }

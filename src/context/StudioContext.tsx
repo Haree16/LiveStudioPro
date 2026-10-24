@@ -43,6 +43,7 @@ export type ModalType =
   | "profiles"
   | "audio-dsp"
   | "graphics-manager"
+  | "gt-designer"
   | "playlists"
   | "replay"
   | "clip-export"
