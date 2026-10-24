@@ -33,32 +33,27 @@ jobs:
         run: |
           $version = "1.26.11"
           $baseUrl = "https://gstreamer.freedesktop.org/data/pkg/windows/$version/msvc"
-          
-          Write-Host "Downloading GStreamer Runtime MSI..."
+
           Invoke-WebRequest -Uri "$baseUrl/gstreamer-1.0-msvc-x86_64-$version.msi" -OutFile "gstreamer.msi"
-          
-          Write-Host "Downloading GStreamer Development MSI..."
           Invoke-WebRequest -Uri "$baseUrl/gstreamer-1.0-devel-msvc-x86_64-$version.msi" -OutFile "gstreamer-devel.msi"
 
-	  Write-Host "Installing GStreamer Runtime..."
-	  $process = Start-Process msiexec.exe `
-          -ArgumentList "/i gstreamer.msi /quiet /norestart INSTALLDIR=C:\gstreamer\1.0\msvc_x86_64" `
-          -Wait -PassThru
+          $gstRoot = "C:\gstreamer\1.0\msvc_x86_64"
 
-	   if ($process.ExitCode -ne 0) {
-		  throw "GStreamer runtime installation failed: $($process.ExitCode)"
-	   }
+          foreach ($installer in @("gstreamer.msi", "gstreamer-devel.msi")) {
+            $process = Start-Process msiexec.exe -ArgumentList "/i `"$installer`" /quiet /norestart" -Wait -PassThru
+            if ($process.ExitCode -ne 0) {
+              throw "Installation failed for $installer with exit code $($process.ExitCode)"
+            }
+          }
 
-           Write-Host "Installing GStreamer Development SDK..."
-           $process = Start-Process msiexec.exe `
-           -ArgumentList "/i gstreamer-devel.msi /quiet /norestart INSTALLDIR=C:\gstreamer\1.0\msvc_x86_64" `
-           -Wait -PassThru
+          if (!(Test-Path "$gstRoot\bin")) {
+            throw "GStreamer was not found at $gstRoot. Check the MSI installation directory."
+          }
 
-           if ($process.ExitCode -ne 0) {
-                 throw "GStreamer development installation failed: $($process.ExitCode)"
-           }
+          "$gstRoot\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          "GSTREAMER_1_0_ROOT_MSVC_X86_64=$gstRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "PKG_CONFIG_PATH=$gstRoot\lib\pkgconfig" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           
-
           # Add to GitHub environment for subsequent steps
           $gstRoot = "C:\gstreamer\1.0\msvc_x86_64"
           echo "$gstRoot\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
