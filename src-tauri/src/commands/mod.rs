@@ -396,6 +396,15 @@ pub fn switcher_get_status(state: State<'_, AppState>) -> SwitcherStatus {
 }
 
 #[tauri::command]
+pub fn switcher_set_stinger(
+    state: State<'_, AppState>,
+    input_id: Option<String>,
+    cut_point: Option<f32>,
+) -> Result<(), LiveStudioError> {
+    state.controller.set_stinger(input_id, cut_point.unwrap_or(0.5))
+}
+
+#[tauri::command]
 pub fn switcher_set_transition_type(state: State<'_, AppState>, transition_type: TransitionType) {
     state.controller.set_transition_type(transition_type);
 }

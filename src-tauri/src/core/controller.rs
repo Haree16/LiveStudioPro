@@ -352,6 +352,10 @@ impl ProductionController {
         for aux_cfg in &project.aux_outputs {
             self.broadcast_engine.aux_engine.save_config(aux_cfg.clone());
         }
+        self.switcher.set_stinger(
+            project.switcher_state.stinger_input_id.clone(),
+            project.switcher_state.stinger_cut_point,
+        );
         for grade in &project.color_grades {
             self.broadcast_engine.color_engine.set_grade(grade.clone());
         }
@@ -878,6 +882,9 @@ impl ProductionController {
 
     // Helper to resolve an input's current RGBA frame
     pub fn resolve_source_frame(&self, source_id: &str) -> Option<image::RgbaImage> {
+        if source_id == crate::playback::replay::REPLAY_SOURCE_ID {
+            return self.replay_engine.get_playout_rgba();
+        }
         let (virtual_clone_id, color_key_cfg) = {
             let proj = self.current_project.read();
             if let Some(inp) = proj.inputs.iter().find(|i| i.id == source_id) {
@@ -1056,6 +1063,22 @@ impl ProductionController {
     }
 
     pub fn auto_transition(&self, duration_ms: Option<u32>) -> Result<ProjectFile, LiveStudioError> {
+        // A media-driven stinger must start from its first frame in step with the transition.
+        let (stinger_id, is_stinger) = {
+            let proj = self.current_project.read();
+            (
+                proj.switcher_state.stinger_input_id.clone(),
+                proj.switcher_state.transition_type == "stinger",
+            )
+        };
+        if is_stinger {
+            if let Some(id) = stinger_id {
+                if let Some(inst) = self.active_inputs.read().get(&id) {
+                    let _ = inst.seek(0);
+                    let _ = inst.play();
+                }
+            }
+        }
         let dur = duration_ms.unwrap_or(self.current_project.read().switcher_state.transition_duration_ms);
         self.switcher.auto(Some(dur))?;
 
@@ -1221,6 +1244,23 @@ impl ProductionController {
             TransitionType::Stinger => "stinger".into(),
         };
         self.mark_dirty_internal(&proj);
+    }
+
+    /// Binds the input (video with alpha, or image) composited over Stinger transitions.
+    /// `cut_point` is the fraction of the transition at which Program flips to the new source.
+    pub fn set_stinger(&self, input_id: Option<String>, cut_point: f32) -> Result<(), LiveStudioError> {
+        if let Some(ref id) = input_id {
+            if !self.current_project.read().inputs.iter().any(|i| &i.id == id) {
+                return Err(LiveStudioError::validation(format!("Stinger input '{id}' not found"), Some("inputId")));
+            }
+        }
+        let cut = cut_point.clamp(0.0, 1.0);
+        self.switcher.set_stinger(input_id.clone(), cut);
+        let mut proj = self.current_project.write();
+        proj.switcher_state.stinger_input_id = input_id;
+        proj.switcher_state.stinger_cut_point = cut;
+        self.mark_dirty_internal(&proj);
+        Ok(())
     }
 
     pub fn set_transition_duration(&self, duration_ms: u32) {
@@ -1575,6 +1615,7 @@ impl ProductionController {
 
     // Output Management
     fn make_frame_provider(&self) -> impl Fn() -> image::RgbaImage + Send + Sync + 'static {
+        let replay_engine = self.replay_engine.clone();
         let switcher = self.switcher.clone();
         let active_inputs = self.active_inputs.clone();
         let graphics = self.graphics_engine.clone();
@@ -1613,7 +1654,11 @@ impl ProductionController {
             let clr_ref = color_engine.clone();
             let vs_ref = virtual_studio.clone();
 
+            let replay_ref = replay_engine.clone();
             let mut resolve = move |source_id: &str| -> Option<image::RgbaImage> {
+                if source_id == crate::playback::replay::REPLAY_SOURCE_ID {
+                    return replay_ref.get_playout_rgba();
+                }
                 let (virtual_clone_id, color_key_cfg) = {
                     let proj = proj_ref.read();
                     if let Some(inp) = proj.inputs.iter().find(|i| i.id == source_id) {
@@ -2425,37 +2470,43 @@ impl ProductionController {
 
     /// Takes the selected instant replay clip live on Program
     pub fn replay_take_live(&self) -> Result<(), LiveStudioError> {
+        let clip = self.replay_engine.current_clip().ok_or_else(|| {
+            LiveStudioError::validation("No replay clip selected; mark or select a clip first", None)
+        })?;
         let current_program_source = self.switcher.get_status().program_source_id;
         self.replay_engine.take_replay_live(current_program_source);
 
-        // Transition Program to replay (virtual replay input or selected camera)
-        if let Some(clip) = self.replay_engine.get_clips().first() {
-            let replay_input_id = &clip.camera_source_id;
-            let cfg = self.replay_engine.get_config();
-            let trans_type = TransitionType::from_str_name(&cfg.replay_stinger_transition);
+        // Put the buffered footage (not the live camera) on Preview, then transition to it.
+        let cfg = self.replay_engine.get_config();
+        let trans_type = TransitionType::from_str_name(&cfg.replay_stinger_transition);
+        self.set_transition_type(trans_type);
+        let _ = self.set_preview(Some(crate::playback::replay::REPLAY_SOURCE_ID.to_string()));
+        let _ = self.auto_transition(Some(300));
 
-            let speed = self.replay_engine.get_current_replay_speed();
-            let _ = self.set_input_playback_rate(replay_input_id, speed);
-
-            self.set_transition_type(trans_type);
-            let _ = self.set_preview(Some(replay_input_id.clone()));
-            let _ = self.auto_transition(Some(300));
-        }
-
-        self.logs.push("INFO", "InstantReplay", "Took replay LIVE on Program");
+        self.logs.push(
+            "INFO",
+            "InstantReplay",
+            format!(
+                "Took replay '{}' LIVE on Program at {:.2}x",
+                clip.name,
+                self.replay_engine.get_current_replay_speed()
+            ),
+        );
         Ok(())
     }
 
     /// Safely returns from Replay back to live Program
     pub fn replay_return_to_live(&self) -> Result<Option<String>, LiveStudioError> {
-        if let Some(clip) = self.replay_engine.get_clips().first() {
-            let _ = self.set_input_playback_rate(&clip.camera_source_id, 1.0);
-        }
         let return_source = self.replay_engine.return_to_live();
+        let replay_is_program = self.switcher.get_program_source().as_deref()
+            == Some(crate::playback::replay::REPLAY_SOURCE_ID);
         if let Some(ref live_id) = return_source {
             let _ = self.set_program(Some(live_id.clone()));
             self.logs.push("INFO", "InstantReplay", format!("Returned from replay to LIVE program (source '{live_id}')"));
         } else {
+            if replay_is_program {
+                let _ = self.set_program(None);
+            }
             self.logs.push("INFO", "InstantReplay", "Returned from replay to live program");
         }
         Ok(return_source)
@@ -2510,16 +2561,58 @@ impl ProductionController {
 
     pub fn scheduler_confirm_pending_cue(&self, cue_id: &str) -> Result<ScheduledCue, LiveStudioError> {
         let cue = self.scheduler.confirm_pending_cue(cue_id)?;
+        self.execute_scheduled_cue(&cue);
+        Ok(cue)
+    }
+
+    /// Performs a scheduled cue's action (play playlist, or cue/take an input).
+    pub fn execute_scheduled_cue(&self, cue: &ScheduledCue) {
         if let Some(ref pl_id) = cue.target_playlist_id {
-            let _ = self.playlist_play_item(pl_id, 0);
+            if let Err(e) = self.playlist_play_item(pl_id, 0) {
+                self.logs.push("WARN", "Scheduler", format!("Cue '{}' failed to start playlist: {e}", cue.label));
+            }
         } else if let Some(ref in_id) = cue.target_input_id {
-            if cue.auto_take_live {
-                let _ = self.set_program(Some(in_id.clone()));
+            let res = if cue.auto_take_live {
+                self.set_program(Some(in_id.clone()))
             } else {
-                let _ = self.set_preview(Some(in_id.clone()));
+                self.set_preview(Some(in_id.clone()))
+            };
+            if let Err(e) = res {
+                self.logs.push("WARN", "Scheduler", format!("Cue '{}' failed: {e}", cue.label));
             }
         }
-        Ok(cue)
+        self.logs.push("INFO", "Scheduler", format!("Executed scheduled cue '{}'", cue.label));
+    }
+
+    /// Executes every playback cue that has come due without needing confirmation.
+    /// Returns how many fired.
+    pub fn dispatch_due_playback_cues(&self) -> usize {
+        let due = self.scheduler.drain_auto_cues();
+        for cue in &due {
+            self.execute_scheduled_cue(cue);
+        }
+        due.len()
+    }
+
+    /// Starts the background dispatcher that fires due playback cues and automation (macro) cues.
+    /// Call once at application start with the shared controller.
+    pub fn spawn_cue_dispatcher(self: &Arc<Self>) {
+        let ctrl = self.clone();
+        let _ = std::thread::Builder::new()
+            .name("cue-dispatcher".into())
+            .spawn(move || loop {
+                ctrl.dispatch_due_playback_cues();
+                for macro_id in ctrl.automation_engine.scheduler.poll_due_cues() {
+                    let c = ctrl.clone();
+                    tauri::async_runtime::spawn(async move {
+                        match c.automation_run_macro(&macro_id, "scheduler").await {
+                            Ok(_) => c.logs.push("INFO", "Scheduler", format!("Timed cue ran macro '{macro_id}'")),
+                            Err(e) => c.logs.push("WARN", "Scheduler", format!("Timed cue macro '{macro_id}' failed: {e}")),
+                        }
+                    });
+                }
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            });
     }
 
     pub fn scheduler_dismiss_pending_cue(&self) {
@@ -2950,6 +3043,7 @@ impl ProductionController {
         let switcher = self.switcher.clone();
         let active_inputs = self.active_inputs.clone();
         let aux_id = id.to_string();
+        let replay_engine = self.replay_engine.clone();
 
         let _ = std::thread::Builder::new()
             .name(format!("aux-feeder-{aux_id}"))
@@ -2958,7 +3052,11 @@ impl ProductionController {
                 while aux_engine.has_active_session(&aux_id) {
                     let start = std::time::Instant::now();
                     let active = active_inputs.clone();
+                    let replay = replay_engine.clone();
                     let clean_frame = switcher.render_program_frame(move |src| {
+                        if src == crate::playback::replay::REPLAY_SOURCE_ID {
+                            return replay.get_playout_rgba();
+                        }
                         active.read().get(src).and_then(|inst| inst.get_latest_rgba_frame())
                     });
                     aux_engine.push_frame(&aux_id, &clean_frame);

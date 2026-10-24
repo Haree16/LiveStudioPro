@@ -315,6 +315,10 @@ export const api = {
     return invoke<void>("switcher_set_transition_type", { transitionType });
   },
 
+  async setStinger(inputId: string | null, cutPoint?: number): Promise<void> {
+    return invoke<void>("switcher_set_stinger", { inputId, cutPoint });
+  },
+
   async setTransitionDuration(durationMs: number): Promise<void> {
     return invoke<void>("switcher_set_transition_duration", { durationMs });
   },

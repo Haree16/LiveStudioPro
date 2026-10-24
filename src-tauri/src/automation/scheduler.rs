@@ -127,6 +127,11 @@ impl AutomationScheduler {
 
         for cue in cues.values_mut() {
             if cue.status == TimedCueStatus::Pending && now >= cue.schedule_time_utc {
+                if cue.requires_confirmation {
+                    // Held for the operator: never run unattended.
+                    cue.status = TimedCueStatus::Armed;
+                    continue;
+                }
                 cue.status = TimedCueStatus::Triggered;
                 cue.last_run = Some(now);
                 due_macros.push(cue.target_macro_id.clone());

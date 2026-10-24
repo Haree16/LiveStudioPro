@@ -11,6 +11,8 @@ use crate::playback::model::{ScheduleStatus, ScheduledCue};
 pub struct EventScheduler {
     cues: Arc<RwLock<Vec<ScheduledCue>>>,
     pending_confirmation_cue: Arc<RwLock<Option<ScheduledCue>>>,
+    /// Cues that fired without needing operator confirmation, waiting for the controller to execute them.
+    auto_queue: Arc<RwLock<Vec<ScheduledCue>>>,
     is_running: Arc<AtomicBool>,
     thread_handle: Arc<RwLock<Option<std::thread::JoinHandle<()>>>>,
 }
@@ -20,6 +22,7 @@ impl EventScheduler {
         Self {
             cues: Arc::new(RwLock::new(Vec::new())),
             pending_confirmation_cue: Arc::new(RwLock::new(None)),
+            auto_queue: Arc::new(RwLock::new(Vec::new())),
             is_running: Arc::new(AtomicBool::new(false)),
             thread_handle: Arc::new(RwLock::new(None)),
         }
@@ -34,6 +37,7 @@ impl EventScheduler {
         let is_running = self.is_running.clone();
         let cues_lock = self.cues.clone();
         let pending_conf = self.pending_confirmation_cue.clone();
+        let auto_queue = self.auto_queue.clone();
 
         let handle = std::thread::Builder::new()
             .name("livestudio-scheduler".into())
@@ -58,6 +62,8 @@ impl EventScheduler {
 
                                     if cue.requires_operator_confirmation {
                                         *pending_conf.write() = Some(cue.clone());
+                                    } else {
+                                        auto_queue.write().push(cue.clone());
                                     }
                                 } else if diff_sec < -60 {
                                     // Missed cue
@@ -72,6 +78,8 @@ impl EventScheduler {
 
                                     if cue.requires_operator_confirmation {
                                         *pending_conf.write() = Some(cue.clone());
+                                    } else {
+                                        auto_queue.write().push(cue.clone());
                                     }
                                 } else if diff_sec < -60 {
                                     cue.status = ScheduleStatus::Missed;
@@ -121,6 +129,21 @@ impl EventScheduler {
         } else {
             Err(LiveStudioError::validation("Scheduled cue not found", None))
         }
+    }
+
+    /// Takes the cues that are due and need no operator confirmation; the caller executes them.
+    /// Each cue is marked `Completed` once handed over so it can never fire twice.
+    pub fn drain_auto_cues(&self) -> Vec<ScheduledCue> {
+        let drained: Vec<ScheduledCue> = std::mem::take(&mut *self.auto_queue.write());
+        if !drained.is_empty() {
+            let mut cues = self.cues.write();
+            for d in &drained {
+                if let Some(c) = cues.iter_mut().find(|c| c.id == d.id) {
+                    c.status = ScheduleStatus::Completed;
+                }
+            }
+        }
+        drained
     }
 
     pub fn get_pending_confirmation(&self) -> Option<ScheduledCue> {

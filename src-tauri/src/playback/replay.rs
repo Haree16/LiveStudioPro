@@ -12,6 +12,15 @@ use crate::playback::model::{
     MultiCamSourceInfo, ReplayBufferHealth, ReplayClip, ReplayConfig,
 };
 
+/// Virtual source id the switcher uses to put buffered replay footage on Preview/Program.
+pub const REPLAY_SOURCE_ID: &str = "__replay__";
+
+struct PlayoutState {
+    /// Position inside the buffer's timeline, in ms (advances at `speed` x real time).
+    pos_ms: f64,
+    last_tick: Instant,
+}
+
 #[derive(Clone)]
 pub struct BufferedFrame {
     pub source_id: String,
@@ -34,6 +43,8 @@ pub struct InstantReplayEngine {
     current_replay_camera: Arc<RwLock<Option<String>>>,
     return_to_live_source_id: Arc<RwLock<Option<String>>>,
     is_replay_on_air: AtomicBool,
+    playout: RwLock<Option<PlayoutState>>,
+    decoded_cache: RwLock<Option<(u64, image::RgbaImage)>>,
 }
 
 impl InstantReplayEngine {
@@ -52,6 +63,8 @@ impl InstantReplayEngine {
             current_replay_camera: Arc::new(RwLock::new(None)),
             return_to_live_source_id: Arc::new(RwLock::new(None)),
             is_replay_on_air: AtomicBool::new(false),
+            playout: RwLock::new(None),
+            decoded_cache: RwLock::new(None),
         }
     }
 
@@ -335,9 +348,76 @@ impl InstantReplayEngine {
         queue.back().map(|f| f.jpeg_bytes.clone())
     }
 
+    /// The clip currently selected for playout (most recently marked or selected).
+    pub fn current_clip(&self) -> Option<ReplayClip> {
+        self.current_replay_clip.read().clone()
+    }
+
+    /// Next buffered frame of the on-air replay, as `(buffer timestamp, JPEG bytes)`.
+    ///
+    /// Advances the playout position by the wall-clock time since the last call, scaled by the
+    /// replay speed, and holds the final frame once the clip end is reached.
+    pub fn playout_frame_jpeg(&self) -> Option<(u64, Vec<u8>)> {
+        if !self.is_replay_on_air() {
+            return None;
+        }
+        let clip = self.current_replay_clip.read().clone()?;
+        let cam_id = self.current_replay_camera.read().clone()?;
+        let speed = *self.current_replay_speed.read();
+
+        let pos = {
+            let mut guard = self.playout.write();
+            let st = guard.get_or_insert_with(|| PlayoutState {
+                pos_ms: clip.start_timestamp_ms as f64,
+                last_tick: Instant::now(),
+            });
+            let now = Instant::now();
+            let dt_ms = now.duration_since(st.last_tick).as_secs_f64() * 1000.0;
+            st.last_tick = now;
+            st.pos_ms = (st.pos_ms + dt_ms * speed).min(clip.end_timestamp_ms as f64);
+            st.pos_ms as u64
+        };
+
+        let channels = self.buffer_channels.read();
+        let queue = channels.get(&cam_id)?;
+        let in_clip = |f: &&BufferedFrame| {
+            f.timestamp_ms >= clip.start_timestamp_ms && f.timestamp_ms <= clip.end_timestamp_ms
+        };
+        // Latest frame at or before the playout position; otherwise the clip's first frame.
+        queue
+            .iter()
+            .filter(in_clip)
+            .take_while(|f| f.timestamp_ms <= pos)
+            .last()
+            .or_else(|| queue.iter().find(in_clip))
+            .map(|f| (f.timestamp_ms, f.jpeg_bytes.clone()))
+    }
+
+    /// Decoded RGBA version of [`Self::playout_frame_jpeg`]; the last decode is cached by timestamp.
+    pub fn get_playout_rgba(&self) -> Option<image::RgbaImage> {
+        let (ts, jpeg) = self.playout_frame_jpeg()?;
+        if let Some((cached_ts, img)) = self.decoded_cache.read().as_ref() {
+            if *cached_ts == ts {
+                return Some(img.clone());
+            }
+        }
+        let img = image::load_from_memory(&jpeg).ok()?.to_rgba8();
+        *self.decoded_cache.write() = Some((ts, img.clone()));
+        Some(img)
+    }
+
+    /// True once the playout position has reached the end of the clip.
+    pub fn is_playout_finished(&self) -> bool {
+        match (self.playout.read().as_ref(), self.current_replay_clip.read().as_ref()) {
+            (Some(st), Some(clip)) => st.pos_ms >= clip.end_timestamp_ms as f64,
+            _ => false,
+        }
+    }
+
     /// Prepares replay on-air take and stores current live program source ID
     pub fn take_replay_live(&self, current_live_source_id: Option<String>) {
         *self.return_to_live_source_id.write() = current_live_source_id;
+        *self.playout.write() = None;
         self.is_replay_on_air.store(true, Ordering::SeqCst);
         info!("Replay taken live on air");
     }
@@ -345,6 +425,8 @@ impl InstantReplayEngine {
     /// Prepares return to live and retrieves original live program source ID
     pub fn return_to_live(&self) -> Option<String> {
         self.is_replay_on_air.store(false, Ordering::SeqCst);
+        *self.playout.write() = None;
+        *self.decoded_cache.write() = None;
         let live_id = self.return_to_live_source_id.read().clone();
         info!("Replay returned to live program (restoring source: {:?})", live_id);
         live_id

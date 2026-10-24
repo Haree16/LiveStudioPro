@@ -239,6 +239,8 @@ export interface SwitcherPersistedState {
   multiviewLayout?: string;
   displayOutputId?: string | null;
   fallbackPolicy?: string;
+  stingerInputId?: string | null;
+  stingerCutPoint?: number;
 }
 
 export interface ProjectMetadata {

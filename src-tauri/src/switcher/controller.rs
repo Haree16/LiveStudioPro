@@ -27,6 +27,10 @@ pub struct SwitcherController {
     fallback_policy: RwLock<String>,
     sub_mixes: RwLock<HashMap<u32, SubMixBus>>,
     tbar_position: RwLock<f32>,
+    /// Input whose live frames are composited over a Stinger transition (alpha respected).
+    stinger_source_id: RwLock<Option<String>>,
+    /// Fraction (0..1) of the stinger at which the program flips from outgoing to incoming.
+    stinger_cut_point: RwLock<f32>,
 }
 
 impl SwitcherController {
@@ -43,6 +47,8 @@ impl SwitcherController {
             program_scene_id: RwLock::new(None),
             scenes: RwLock::new(default_scenes),
             transition_type: RwLock::new(TransitionType::Crossfade),
+            stinger_source_id: RwLock::new(None),
+            stinger_cut_point: RwLock::new(0.5),
             transition_duration_ms: RwLock::new(500),
             active_transition: RwLock::new(None),
             last_valid_program_frame: Arc::new(RwLock::new(None)),
@@ -109,6 +115,43 @@ impl SwitcherController {
     // Transitions
     pub fn set_transition_type(&self, t_type: TransitionType) {
         *self.transition_type.write() = t_type;
+    }
+
+    pub fn set_stinger(&self, source_id: Option<String>, cut_point: f32) {
+        *self.stinger_source_id.write() = source_id;
+        *self.stinger_cut_point.write() = cut_point.clamp(0.0, 1.0);
+    }
+
+    pub fn get_stinger(&self) -> (Option<String>, f32) {
+        (self.stinger_source_id.read().clone(), *self.stinger_cut_point.read())
+    }
+
+    /// Blends one frame of a transition. A Stinger with bound media composites that media's
+    /// current frame; without media (or before its first frame) the built-in stinger is used.
+    fn blend<F>(
+        &self,
+        t_type: TransitionType,
+        from_frame: &RgbaImage,
+        to_frame: &RgbaImage,
+        progress: f32,
+        resolve: &mut F,
+    ) -> RgbaImage
+    where
+        F: FnMut(&str) -> Option<RgbaImage>,
+    {
+        if t_type == TransitionType::Stinger {
+            let stinger_id = self.stinger_source_id.read().clone();
+            if let Some(overlay) = stinger_id.and_then(|id| resolve(&id)) {
+                return TransitionEngine::render_stinger(
+                    from_frame,
+                    to_frame,
+                    &overlay,
+                    progress,
+                    *self.stinger_cut_point.read(),
+                );
+            }
+        }
+        TransitionEngine::render_transition(t_type, from_frame, to_frame, progress)
     }
 
     pub fn set_transition_duration(&self, duration_ms: u32) {
@@ -239,12 +282,7 @@ impl SwitcherController {
                 .or_else(|| self.last_valid_program_frame.read().clone())
                 .unwrap_or_else(|| RgbaImage::from_pixel(1920, 1080, Rgba([0, 0, 0, 255])));
 
-            let blended = TransitionEngine::render_transition(
-                trans.transition_type,
-                &from_frame,
-                &to_frame,
-                progress,
-            );
+            let blended = self.blend(trans.transition_type, &from_frame, &to_frame, progress, &mut resolve_source_frame);
 
             // If finished, commit transition
             if trans.is_finished() {
@@ -292,12 +330,8 @@ impl SwitcherController {
                     .unwrap_or_else(|| RgbaImage::from_pixel(1920, 1080, Rgba([0, 0, 0, 255])))
             };
 
-            let blended = TransitionEngine::render_transition(
-                *self.transition_type.read(),
-                &from_frame,
-                &to_frame,
-                tbar,
-            );
+            let t_type = *self.transition_type.read();
+            let blended = self.blend(t_type, &from_frame, &to_frame, tbar, &mut resolve_source_frame);
             *self.last_valid_program_frame.write() = Some(blended.clone());
             return blended;
         }

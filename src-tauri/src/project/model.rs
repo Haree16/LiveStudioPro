@@ -505,6 +505,14 @@ pub struct SwitcherPersistedState {
     pub display_output_id: Option<String>,
     #[serde(default = "default_fallback_policy")]
     pub fallback_policy: String, // "freeze", "black"
+    #[serde(default)]
+    pub stinger_input_id: Option<String>,
+    #[serde(default = "default_stinger_cut_point")]
+    pub stinger_cut_point: f32,
+}
+
+fn default_stinger_cut_point() -> f32 {
+    0.5
 }
 
 fn default_multiview_layout() -> String {
@@ -527,6 +535,8 @@ impl Default for SwitcherPersistedState {
             multiview_layout: "grid4".into(),
             display_output_id: None,
             fallback_policy: "freeze".into(),
+            stinger_input_id: None,
+            stinger_cut_point: 0.5,
         }
     }
 }

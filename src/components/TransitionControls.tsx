@@ -1,6 +1,7 @@
-import React from "react";
+import React, { useState } from "react";
 import { ArrowLeftRight, Clock, Sparkles, Zap, Film, Layers, Type } from "lucide-react";
 import { useStudio } from "../context/StudioContext";
+import { api } from "../services/api";
 import type { TransitionType } from "../types";
 
 export const TransitionControls: React.FC = () => {
@@ -22,6 +23,20 @@ export const TransitionControls: React.FC = () => {
   const currentType = switcherStatus?.transitionType || (project?.switcherState.transitionType as TransitionType) || "crossfade";
   const isTransitioning = switcherStatus?.isTransitioning || false;
   const transitionProgress = switcherStatus?.transitionProgress || 0;
+
+  const [stingerId, setStingerId] = useState<string | null>(null);
+  const activeStingerId = stingerId ?? project?.switcherState.stingerInputId ?? "";
+  const stingerCandidates = (project?.inputs ?? []).filter(
+    (i) => i.inputType === "mediaFile" || i.inputType === "image",
+  );
+  const pickStinger = async (id: string) => {
+    setStingerId(id || null);
+    try {
+      await api.setStinger(id || null, project?.switcherState.stingerCutPoint ?? 0.5);
+    } catch (e) {
+      console.error("Failed to set stinger", e);
+    }
+  };
 
   const transitionOptions: { id: TransitionType; label: string }[] = [
     { id: "cut", label: "DIRECT" },
@@ -97,6 +112,22 @@ export const TransitionControls: React.FC = () => {
               </button>
             ))}
           </div>
+
+          {currentType === "stinger" && (
+            <select
+              value={activeStingerId}
+              onChange={(e) => pickStinger(e.target.value)}
+              className="h-9 bg-[#1a1e2b] border border-[#2b3244] rounded-lg text-xs text-slate-200 px-2 shrink-0 max-w-[180px]"
+              title="Stinger media (video with alpha or PNG). Built-in stinger is used when none is selected."
+            >
+              <option value="">Built-in stinger</option>
+              {stingerCandidates.map((i) => (
+                <option key={i.id} value={i.id}>
+                  {i.name}
+                </option>
+              ))}
+            </select>
+          )}
 
           {/* Transition Duration Presets */}
           <div className="flex items-center gap-1 bg-[#1a1e2b] p-1 rounded-lg border border-[#2b3244] shrink-0">

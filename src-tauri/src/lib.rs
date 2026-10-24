@@ -82,6 +82,7 @@ pub fn run() {
             commands::switcher_get_tbar,
             commands::switcher_get_status,
             commands::switcher_set_transition_type,
+            commands::switcher_set_stinger,
             commands::switcher_set_transition_duration,
             commands::switcher_get_preview_frame,
             commands::switcher_get_program_frame,
@@ -295,6 +296,7 @@ pub fn run() {
             commands::list_capturable_windows,
         ])
         .setup(|app| {
+            app.state::<core::state::AppState>().controller.spawn_cue_dispatcher();
             info!("LiveStudio Pro native runtime setup complete");
             #[cfg(debug_assertions)]
             {

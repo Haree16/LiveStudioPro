@@ -300,6 +300,7 @@ fn test_project_v3_schema_persistence_and_scenes() {
         multiview_layout: "grid4".into(),
         display_output_id: Some("HDMI-1".into()),
         fallback_policy: "freeze".into(),
+        ..Default::default()
     };
 
     ProjectStore::save(&project, &file_path).expect("Failed to save v3 project");
