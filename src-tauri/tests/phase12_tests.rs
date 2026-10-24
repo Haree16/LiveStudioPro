@@ -68,6 +68,7 @@ fn test_phase12_input_types_serialization_and_pipeline() {
         device_config: None,
         rtsp_config: None,
         playback_state: None,
+        color_key: None,
     };
 
     let serialized = serde_json::to_string(&srt_item).expect("Failed to serialize SrtStream input");
@@ -94,6 +95,7 @@ fn test_phase12_input_types_serialization_and_pipeline() {
         device_config: None,
         rtsp_config: None,
         playback_state: None,
+        color_key: None,
     };
 
     let serialized_sys = serde_json::to_string(&sys_audio_item).expect("Failed to serialize SystemAudio input");
@@ -119,6 +121,7 @@ fn test_phase12_input_types_serialization_and_pipeline() {
         device_config: None,
         rtsp_config: None,
         playback_state: None,
+        color_key: None,
     };
 
     let serialized_browser = serde_json::to_string(&browser_item).expect("Failed to serialize HtmlBrowser input");

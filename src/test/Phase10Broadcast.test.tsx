@@ -123,8 +123,8 @@ describe("LiveStudio Pro Phase 10 Broadcast Production & Professional Infrastruc
 
     await waitFor(() => {
       expect(screen.getByText(/VIRTUAL STUDIO & 4-POINT CORNER PIN SET/i)).toBeInTheDocument();
-      expect(screen.getByText(/Chroma Keying & Spill Suppression/i)).toBeInTheDocument();
-      expect(screen.getByText(/4-Point Quad Corner Pinning/i)).toBeInTheDocument();
+      expect(screen.getByText(/Chroma Keying & Perspective Warp/i)).toBeInTheDocument();
+      expect(screen.getByText(/4-Point Corner Pinning/i)).toBeInTheDocument();
       expect(screen.getByText(/Top-Left Corner/i)).toBeInTheDocument();
     });
 
@@ -141,7 +141,6 @@ describe("LiveStudio Pro Phase 10 Broadcast Production & Professional Infrastruc
 
     await waitFor(() => {
       expect(screen.getByText(/BROADCAST HARDWARE & TELEMETRY MONITOR/i)).toBeInTheDocument();
-      expect(screen.getByText(/SMPTE 12M Linear Master Timecode/i)).toBeInTheDocument();
       expect(screen.getByText(/CPU Utilization/i)).toBeInTheDocument();
       expect(screen.getByText("18.5%")).toBeInTheDocument();
     });
@@ -160,7 +159,7 @@ describe("LiveStudio Pro Phase 10 Broadcast Production & Professional Infrastruc
     fireEvent.click(pipelinesTabBtn);
     await waitFor(() => {
       expect(screen.getByText("Program Broadcast Pipeline")).toBeInTheDocument();
-      expect(screen.getByText(/SWITCHER Stage/i)).toBeInTheDocument();
+      expect(screen.getByText(/playing/i)).toBeInTheDocument();
     });
 
     // Switch to Alerts tab

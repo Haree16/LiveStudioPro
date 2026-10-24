@@ -31,8 +31,8 @@ describe("LiveStudio Pro Phase 1 Frontend UI", () => {
     renderWithContext(<MonitorSection />);
 
     await waitFor(() => {
-      expect(screen.getByText(/PVW • PREVIEW/)).toBeInTheDocument();
-      expect(screen.getByText(/PGM • PROGRAM/)).toBeInTheDocument();
+      expect(screen.getByText(/^PREVIEW$/)).toBeInTheDocument();
+      expect(screen.getByText(/^PROGRAM$/)).toBeInTheDocument();
     });
 
     // Preview should display "Studio Camera 1"

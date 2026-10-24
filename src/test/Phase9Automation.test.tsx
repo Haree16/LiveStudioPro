@@ -45,7 +45,7 @@ describe("LiveStudio Pro Phase 9 Advanced Automation & Control Surfaces", () => 
 
     await waitFor(() => {
       expect(
-        screen.getByText(/Keyboard Shortcuts & Hotkey Engine/i)
+        screen.getByText(/Custom Hotkey Bindings/i)
       ).toBeInTheDocument();
       expect(screen.getByDisplayValue("Space")).toBeInTheDocument();
       expect(screen.getByDisplayValue("Enter")).toBeInTheDocument();
@@ -53,17 +53,16 @@ describe("LiveStudio Pro Phase 9 Advanced Automation & Control Surfaces", () => 
     });
 
     // Add a conflicting hotkey
-    const addBtn = screen.getByText("+ Add Shortcut");
+    const addBtn = screen.getByText("+ Add Hotkey");
     fireEvent.click(addBtn);
 
-    // Modify the new shortcut to "Space" to trigger conflict detector
-    const inputs = screen.getAllByPlaceholderText("e.g. Space, F1");
-    const lastInput = inputs[inputs.length - 1];
-    fireEvent.change(lastInput, { target: { value: "Space" } });
+    // Capture "Space" on the new (empty) hotkey to trigger the conflict detector
+    const keyInputs = screen.getAllByDisplayValue("Press keys…");
+    fireEvent.keyDown(keyInputs[0], { key: " ", code: "Space" });
 
     await waitFor(() => {
       expect(
-        screen.getByText(/Hotkey Conflicts Detected/i)
+        screen.getByText(/Conflict on 'Space'/)
       ).toBeInTheDocument();
     });
   });
@@ -75,22 +74,22 @@ describe("LiveStudio Pro Phase 9 Advanced Automation & Control Surfaces", () => 
 
     await waitFor(() => {
       expect(
-        screen.getByText(/MIDI Surface & Hardware Controller Integration/i)
+        screen.getByText(/MIDI Control Surface Mapping/i)
       ).toBeInTheDocument();
       expect(screen.getByText("Korg nanoKONTROL2")).toBeInTheDocument();
       expect(screen.getByDisplayValue("Master Fader")).toBeInTheDocument();
-      expect(screen.getByText("Start MIDI Learn")).toBeInTheDocument();
+      expect(screen.getByText("● MIDI Learn")).toBeInTheDocument();
     });
 
     // Toggle MIDI Learn mode
-    const learnBtn = screen.getByText("Start MIDI Learn");
+    const learnBtn = screen.getByText("● MIDI Learn");
     fireEvent.click(learnBtn);
 
     await waitFor(() => {
       expect(learnSpy).toHaveBeenCalledWith(true);
-      expect(screen.getByText(/MIDI Learn Active/i)).toBeInTheDocument();
+      expect(screen.getByText(/Stop MIDI Learn/)).toBeInTheDocument();
       expect(
-        screen.getByText(/Listening for hardware inputs:/i)
+        screen.getByText(/Last: controlChange ch0 #7/)
       ).toBeInTheDocument();
     });
   });

@@ -15,8 +15,8 @@ describe("LiveStudio Pro Phase 3 Frontend Subsystems", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Multiview Workspace")).toBeInTheDocument();
-      expect(screen.getByText("PVW • PREVIEW")).toBeInTheDocument();
-      expect(screen.getByText("PGM • PROGRAM")).toBeInTheDocument();
+      expect(screen.getByText("PREVIEW")).toBeInTheDocument();
+      expect(screen.getByText("PROGRAM")).toBeInTheDocument();
     });
 
     // Check grid layout mode buttons
